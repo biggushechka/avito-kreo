@@ -92,8 +92,7 @@ const elements = {
     // Table Generator Panel elements
     tableGeneratorPanel: document.getElementById('table-generator-panel'),
     tgYandexFolder: document.getElementById('tg-yandex-folder'),
-    tgGoogleSheet: document.getElementById('tg-google-sheet'),
-    tgTabName: document.getElementById('tg-tab-name'),
+    tgPromptFields: document.getElementById('tg-prompt-fields'),
     tgPromptInstruction: document.getElementById('tg-prompt-instruction'),
     btnTgStart: document.getElementById('btn-tg-start'),
     tgProgressInfo: document.getElementById('tg-progress-info'),
@@ -102,7 +101,9 @@ const elements = {
     tgProgressPercent: document.getElementById('tg-progress-percent'),
     btnTgClearLogs: document.getElementById('btn-tg-clear-logs'),
     btnTgCopyLogs: document.getElementById('btn-tg-copy-logs'),
-    tgConsoleBody: document.getElementById('tg-console-body')
+    tgConsoleBody: document.getElementById('tg-console-body'),
+    tgResultOutput: document.getElementById('tg-result-output'),
+    btnTgCopyTsv: document.getElementById('btn-tg-copy-tsv')
 };
 
 // Event Listeners
@@ -212,6 +213,9 @@ function setupEventListeners() {
     }
     if (elements.btnTgCopyLogs) {
         elements.btnTgCopyLogs.addEventListener('click', copyTgLogs);
+    }
+    if (elements.btnTgCopyTsv) {
+        elements.btnTgCopyTsv.addEventListener('click', copyTgTsv);
     }
 }
 
@@ -1412,23 +1416,27 @@ let lastLogLength = 0;
 // Start Table Generation process
 async function runTableGeneration() {
     const folder = elements.tgYandexFolder.value.trim();
-    const sheetUrl = elements.tgGoogleSheet.value.trim();
-    const tabName = elements.tgTabName.value.trim();
+    const promptFields = elements.tgPromptFields.value.trim();
     const instruction = elements.tgPromptInstruction.value.trim();
     
     if (!folder) {
         showNotification('Пожалуйста, укажите папку на Яндекс.Диске', 'warning');
         return;
     }
-    if (!sheetUrl) {
-        showNotification('Пожалуйста, укажите ссылку на Google Таблицу', 'warning');
+    if (!promptFields) {
+        showNotification('Пожалуйста, укажите список колонок (полей) через запятую', 'warning');
         return;
     }
     
     elements.btnTgStart.disabled = true;
     elements.btnTgStart.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Выполняется...';
     
-    appendTgConsoleLog('[Система] Запуск фонового процесса сканирования и импорта...', 'system');
+    // Clear previous output
+    if (elements.tgResultOutput) {
+        elements.tgResultOutput.value = '';
+    }
+    
+    appendTgConsoleLog('[Система] Запуск фонового процесса сканирования и сборки таблицы...', 'system');
     
     try {
         const response = await fetch('/api/table-generator/scan', {
@@ -1436,8 +1444,7 @@ async function runTableGeneration() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 yandex_folder_path: folder,
-                google_sheet_url: sheetUrl,
-                tab_name: tabName || 'Лист1',
+                prompt_fields: promptFields,
                 prompt_instruction: instruction
             })
         });
@@ -1445,7 +1452,7 @@ async function runTableGeneration() {
         const result = await response.json();
         
         if (response.ok) {
-            showNotification('Процесс генерации таблицы успешно запущен!', 'success');
+            showNotification('Процесс сканирования успешно запущен!', 'success');
             elements.tgProgressInfo.style.display = 'flex';
             lastLogLength = 0;
             
@@ -1456,14 +1463,14 @@ async function runTableGeneration() {
             showNotification(result.detail || 'Не удалось запустить процесс', 'error');
             appendTgConsoleLog(`[Ошибка] Сбой запуска: ${result.detail || 'Неизвестная ошибка'}`, 'error');
             elements.btnTgStart.disabled = false;
-            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и импорт';
+            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и сборку';
         }
     } catch (error) {
         console.error('Run table generation error:', error);
         showNotification('Ошибка соединения при запуске процесса', 'error');
         appendTgConsoleLog(`[Ошибка] Сетевой сбой при отправке запроса.`, 'error');
         elements.btnTgStart.disabled = false;
-        elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и импорт';
+        elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и сборку';
     }
 }
 
@@ -1480,7 +1487,12 @@ async function pollTableGeneratorStatus(quiet = false) {
             elements.tgProgressInfo.style.display = 'flex';
             elements.tgProgressFill.style.width = `${status.progress}%`;
             elements.tgProgressPercent.innerText = `${status.progress}%`;
-            elements.tgCurrentFolderText.innerText = status.current_folder ? `Сканирование: ${status.current_folder}` : 'Подготовка...';
+            elements.tgCurrentFolderText.innerText = status.current_folder ? `Обработка: ${status.current_folder}` : 'Подготовка...';
+        }
+        
+        // Update result text area in real-time
+        if (elements.tgResultOutput && status.result_tsv) {
+            elements.tgResultOutput.value = status.result_tsv;
         }
         
         // Append new log lines
@@ -1508,13 +1520,13 @@ async function pollTableGeneratorStatus(quiet = false) {
             }
             
             elements.btnTgStart.disabled = false;
-            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и импорт';
+            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и сборку';
             
             if (status.error) {
                 if (!quiet) showNotification('Сбой процесса генерации таблицы', 'error');
                 appendTgConsoleLog(`[Сбой] Процесс прерван из-за ошибки: ${status.error}`, 'error');
             } else if (status.progress >= 100.0) {
-                if (!quiet) showNotification('Импорт таблицы полностью завершен!', 'success');
+                if (!quiet) showNotification('Сборка таблицы полностью завершена!', 'success');
             }
         } else {
             // Task is active, disable start button and show spinner
@@ -1552,4 +1564,32 @@ function appendTgConsoleLog(message, type = 'system') {
     
     // Auto-scroll to bottom of console logs panel
     elements.tgConsoleBody.scrollTop = elements.tgConsoleBody.scrollHeight;
+}
+
+// Copy compiled TSV data to clipboard
+function copyTgTsv() {
+    if (!elements.tgResultOutput) return;
+    const tsvText = elements.tgResultOutput.value;
+    if (!tsvText) {
+        showNotification('Таблица еще не сгенерирована', 'warning');
+        return;
+    }
+    
+    navigator.clipboard.writeText(tsvText).then(() => {
+        showNotification('Таблица успешно скопирована! Вставьте её в первую ячейку Excel или Google Таблицы.', 'success');
+        
+        const btn = elements.btnTgCopyTsv;
+        if (btn) {
+            const origHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Таблица скопирована!';
+            btn.style.background = 'var(--accent-green)';
+            setTimeout(() => {
+                btn.innerHTML = origHtml;
+                btn.style.background = '';
+            }, 2000);
+        }
+    }).catch(err => {
+        console.error('Copy TSV table error:', err);
+        showNotification('Не удалось скопировать таблицу', 'error');
+    });
 }

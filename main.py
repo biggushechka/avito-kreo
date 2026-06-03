@@ -431,8 +431,7 @@ def read_root(request: Request):
 
 class TableGeneratorRequest(BaseModel):
     yandex_folder_path: str
-    google_sheet_url: str
-    tab_name: str = "Лист1"
+    prompt_fields: str
     prompt_instruction: Optional[str] = ""
 
 # Global state for background scanning task
@@ -441,7 +440,9 @@ table_generator_status = {
     "progress": 0.0,
     "current_folder": "",
     "logs": [],
-    "error": ""
+    "error": "",
+    "result_headers": [],
+    "result_tsv": ""
 }
 
 def add_log(msg: str):
@@ -450,66 +451,41 @@ def add_log(msg: str):
     if len(table_generator_status["logs"]) > 200:
         table_generator_status["logs"] = table_generator_status["logs"][-200:]
 
-def run_table_generation_task(yandex_folder_path: str, google_sheet_url: str, tab_name: str, prompt_instruction: str):
+def escape_tsv_cell(val: Any) -> str:
+    s = str(val) if val is not None else ""
+    if "\n" in s or "\t" in s or '"' in s:
+        # Wrap in quotes and double internal quotes as per standard RFC 4180
+        s = s.replace('"', '""')
+        return f'"{s}"'
+    return s
+
+def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, prompt_instruction: str):
     global table_generator_status
     table_generator_status["active"] = True
     table_generator_status["progress"] = 0.0
     table_generator_status["current_folder"] = ""
     table_generator_status["logs"] = []
     table_generator_status["error"] = ""
+    table_generator_status["result_headers"] = []
+    table_generator_status["result_tsv"] = ""
     
     try:
-        add_log("Запуск процесса генерации таблицы...")
+        add_log("Запуск процесса сборки таблицы для копирования...")
         config = load_config()
         gemini_key = config.get("gemini_api_key")
         yandex_token = config.get("yandex_token")
-        sa_json = config.get("google_service_account_json")
         
         if not gemini_key:
             raise Exception("Gemini API Key не настроен в конфигурации.")
         if not yandex_token:
             raise Exception("Яндекс.Диск OAuth токен не настроен в конфигурации.")
-        if not sa_json:
-            raise Exception("Ключ сервисного аккаунта Google Sheets не настроен в конфигурации.")
             
-        sheet_id_match = re.search(r"/d/([a-zA-Z0-9-_]+)", google_sheet_url)
-        sheet_id = sheet_id_match.group(1) if sheet_id_match else google_sheet_url.strip()
-        add_log(f"Определен ID Google Таблицы: {sheet_id}")
-        
-        add_log("Подключение к Google Sheets API...")
-        try:
-            info = json.loads(sa_json)
-            creds = service_account.Credentials.from_service_account_info(
-                info,
-                scopes=['https://www.googleapis.com/auth/spreadsheets']
-            )
-            sheets_service = build('sheets', 'v4', credentials=creds)
-            res = sheets_service.spreadsheets().values().get(
-                spreadsheetId=sheet_id,
-                range=f"{tab_name}!A1:Z1"
-            ).execute()
-            headers = res.get('values', [[]])[0]
-            add_log(f"Подключение успешно! Колонок найдено: {len(headers)}")
-        except Exception as sheet_err:
-            raise Exception(f"Ошибка подключения к Google Sheets: {sheet_err}")
+        # Parse prompt_fields
+        field_names = [f.strip() for f in prompt_fields.split(",") if f.strip()]
+        if not field_names:
+            raise Exception("Не указаны поля для извлечения. Укажите хотя бы одно поле (например, Название, Цена).")
             
-        mapping = {}
-        for idx, h in enumerate(headers):
-            h_lower = h.lower().strip()
-            if any(x in h_lower for x in ["название", "заголовок", "title", "модель"]):
-                mapping["title"] = idx
-            elif any(x in h_lower for x in ["описание", "description", "текст"]):
-                mapping["description"] = idx
-            elif any(x in h_lower for x in ["цена", "price"]):
-                mapping["price"] = idx
-            elif any(x in h_lower for x in ["параметр", "характеристик", "parameter", "специфик"]):
-                mapping["parameters"] = idx
-            elif any(x in h_lower for x in ["фото", "картинк", "image", "url", "ссылка"]):
-                if "photos" not in mapping:
-                    mapping["photos"] = []
-                mapping["photos"].append(idx)
-                
-        add_log(f"Карта колонок: {mapping}")
+        add_log(f"Поля для извлечения ИИ: {field_names}")
         
         add_log(f"Сканирование директории Яндекс.Диска: {yandex_folder_path}...")
         yandex_handler = YandexDiskHandler(yandex_token)
@@ -526,14 +502,13 @@ def run_table_generation_task(yandex_folder_path: str, google_sheet_url: str, ta
             
         total_folders = len(subdirs)
         
+        # Phase 1: Scan folders to count images and find max_photos
+        add_log("Предварительный анализ количества изображений в папках...")
+        folder_contents = []
+        max_photos = 0
+        
         for folder_idx, folder_name in enumerate(subdirs):
-            table_generator_status["current_folder"] = folder_name
-            current_progress = round((folder_idx / total_folders) * 100, 1)
-            table_generator_status["progress"] = current_progress
-            
-            add_log(f"=== [{folder_idx + 1}/{total_folders}] Обработка товара: {folder_name} ===")
             folder_full_path = f"{yandex_folder_path.rstrip('/')}/{folder_name}"
-            
             files = yandex_handler.list_files(folder_full_path)
             
             image_extensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
@@ -548,7 +523,37 @@ def run_table_generation_task(yandex_folder_path: str, google_sheet_url: str, ta
                 elif ext in [".txt", ".docx", ".doc"]:
                     text_files.append(file_info)
                     
-            add_log(f"Найдено фото: {len(image_files)}, текстов: {len(text_files)}")
+            folder_contents.append({
+                "name": folder_name,
+                "full_path": folder_full_path,
+                "image_files": image_files,
+                "text_files": text_files
+            })
+            
+            if len(image_files) > max_photos:
+                max_photos = len(image_files)
+                
+        add_log(f"Максимальное количество фото в одном товаре: {max_photos}")
+        
+        # Build headers
+        headers = field_names + [f"Ссылка на фото {i+1}" for i in range(max_photos)]
+        table_generator_status["result_headers"] = headers
+        
+        # Construct TSV header line
+        tsv_lines = [ "\t".join(headers) ]
+        table_generator_status["result_tsv"] = tsv_lines[0] + "\n"
+        
+        # Phase 2: Process each folder
+        for folder_idx, content in enumerate(folder_contents):
+            folder_name = content["name"]
+            table_generator_status["current_folder"] = folder_name
+            current_progress = round((folder_idx / total_folders) * 100, 1)
+            table_generator_status["progress"] = current_progress
+            
+            add_log(f"=== [{folder_idx + 1}/{total_folders}] Извлечение данных: {folder_name} ===")
+            
+            image_files = content["image_files"]
+            text_files = content["text_files"]
             
             raw_text = ""
             if text_files:
@@ -561,33 +566,33 @@ def run_table_generation_task(yandex_folder_path: str, google_sheet_url: str, ta
                     os.remove(local_temp_path)
                 add_log(f"Размер текста: {len(raw_text)} символов.")
             else:
-                add_log(f"Файл описания не найден. Будем использовать имя папки '{folder_name}'.")
+                add_log(f"Файл описания не найден. Используем имя папки '{folder_name}'.")
                 raw_text = f"Имя товара: {folder_name}"
                 
             add_log("Форматирование и извлечение данных через Gemini...")
             gemini_handler = GeminiHandler(gemini_key)
             
-            product_info = {
-                "title": folder_name,
-                "price": "",
-                "parameters": "",
-                "description": raw_text
-            }
+            # Prepare JSON template dynamically
+            json_template = ", ".join([f'"{field}": "извлеченное значение {field}"' for field in field_names])
+            
+            product_info = {field: "" for field in field_names}
             
             try:
                 gemini_prompt = f"""
-                Тебе дан текст описания товара. Вытащи из него ключевую информацию и составь продающее структурированное объявление для Авито.
+                Тебе дан текст описания товара. Извлеки из него информацию по следующим полям: {', '.join(field_names)}.
                 
-                Верни ответ СТРОГО в формате JSON с четырьмя ключами (все значения должны быть строками):
+                Верни ответ СТРОГО в формате JSON с указанными ключами (все значения должны быть строками):
                 {{
-                  "title": "Короткое название товара для заголовка объявления Авито",
-                  "price": "Стоимость товара цифрами (например, '185000'), если цена не найдена - оставь пустым",
-                  "parameters": "Ключевые параметры/спецификации через запятую (например: '2х2 метра, форма квадро, печь в подарок')",
-                  "description": "Продающий структурированный текст объявления для Авито. Используй абзацы, списки, привлекательные выгоды и смайлики."
+                   {json_template}
                 }}
                 
-                Пользовательские требования к тексту:
-                {prompt_instruction or 'Сделай текст привлекательным для покупателей на Авито.'}
+                Правила:
+                1. Ключи в JSON должны в точности соответствовать запрашиваемым полям.
+                2. Если информация для какого-то поля отсутствует в тексте, верни для него пустую строку "".
+                3. Не добавляй никаких дополнительных полей, кроме запрашиваемых.
+                
+                Пользовательские требования к значениям:
+                {prompt_instruction or 'Извлеки данные максимально точно.'}
                 
                 Текст описания товара:
                 {raw_text}
@@ -603,14 +608,16 @@ def run_table_generation_task(yandex_folder_path: str, google_sheet_url: str, ta
                 clean_json = clean_json.strip()
                 
                 parsed_json = json.loads(clean_json)
-                product_info["title"] = parsed_json.get("title", folder_name) or folder_name
-                product_info["price"] = parsed_json.get("price", "") or ""
-                product_info["parameters"] = parsed_json.get("parameters", "") or ""
-                product_info["description"] = parsed_json.get("description", raw_text) or raw_text
-                add_log(f"Успешный разбор! Заголовок: {product_info['title']}, Цена: {product_info['price']}")
+                for field in field_names:
+                    product_info[field] = parsed_json.get(field, "") or ""
+                add_log(f"Успешный разбор полей ИИ!")
             except Exception as gemini_err:
                 add_log(f"Предупреждение: Ошибка анализа Gemini ({gemini_err}). Используем fallback.")
-                
+                if field_names:
+                    product_info[field_names[0]] = folder_name
+                if len(field_names) > 1:
+                    product_info[field_names[1]] = raw_text
+                    
             photo_urls = []
             if image_files:
                 add_log(f"Публикация {len(image_files)} фото на Яндекс.Диске...")
@@ -625,42 +632,20 @@ def run_table_generation_task(yandex_folder_path: str, google_sheet_url: str, ta
             else:
                 add_log("Фото не найдены.")
                 
-            if headers:
-                row_data = [""] * len(headers)
-                if "title" in mapping:
-                    row_data[mapping["title"]] = product_info["title"]
-                if "price" in mapping:
-                    row_data[mapping["price"]] = product_info["price"]
-                if "description" in mapping:
-                    row_data[mapping["description"]] = product_info["description"]
-                if "parameters" in mapping:
-                    row_data[mapping["parameters"]] = product_info["parameters"]
-                    
-                if "photos" in mapping and photo_urls:
-                    for photo_col_idx, pub_url in enumerate(photo_urls):
-                        if photo_col_idx < len(mapping["photos"]):
-                            target_col = mapping["photos"][photo_col_idx]
-                            row_data[target_col] = pub_url
-                        else:
-                            break
-            else:
-                row_data = [
-                    product_info["title"],
-                    product_info["price"],
-                    product_info["description"],
-                    product_info["parameters"],
-                    *photo_urls
-                ]
+            # Compile row
+            row_data = [product_info.get(field, "") for field in field_names] + photo_urls
+            # Pad with empty strings for photo link alignment
+            padding_needed = len(headers) - len(row_data)
+            if padding_needed > 0:
+                row_data.extend([""] * padding_needed)
                 
-            add_log("Добавление строки в Google Таблицу...")
-            sheets_service.spreadsheets().values().append(
-                spreadsheetId=sheet_id,
-                range=f"{tab_name}!A:Z",
-                valueInputOption='USER_ENTERED',
-                insertDataOption='INSERT_ROWS',
-                body={"values": [row_data]}
-            ).execute()
-            add_log(f"Строка успешно записана!")
+            # Convert to TSV row with cell escaping
+            tsv_row = "\t".join([escape_tsv_cell(cell) for cell in row_data])
+            tsv_lines.append(tsv_row)
+            
+            # Update status in real-time
+            table_generator_status["result_tsv"] = "\n".join(tsv_lines)
+            add_log(f"Товар успешно обработан и добавлен в таблицу!")
             
             # Wait to avoid Rate Limit errors
             time.sleep(config.get("generation_delay_sec", 5))
@@ -683,8 +668,7 @@ def start_table_generation(request: TableGeneratorRequest, background_tasks: Bac
     background_tasks.add_task(
         run_table_generation_task,
         yandex_folder_path=request.yandex_folder_path,
-        google_sheet_url=request.google_sheet_url,
-        tab_name=request.tab_name,
+        prompt_fields=request.prompt_fields,
         prompt_instruction=request.prompt_instruction
     )
     return {"status": "success", "message": "Фоновый процесс генерации таблицы запущен."}

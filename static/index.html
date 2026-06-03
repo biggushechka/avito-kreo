@@ -230,8 +230,8 @@
                     <div class="logo-area">
                         <i class="fa-solid fa-table logo-icon" style="font-size: 1.8rem;"></i>
                         <div class="logo-text">
-                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0;">Автоматическое заполнение Google Таблицы по Yandex.Disk</h2>
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Автопарсинг локальных папок на Яндекс.Диске, структурирование Gemini и перенос в таблицу</p>
+                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0;">Автоматическая сборка таблицы по Yandex.Disk</h2>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Парсинг локальных папок на Яндекс.Диске, структурирование колонок через ИИ и генерация общей таблицы</p>
                         </div>
                     </div>
                 </div>
@@ -244,28 +244,22 @@
                             <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Путь к папке, в которой лежат подпапки с товарами (название папки = название модели).</small>
                         </div>
                         
-                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
-                            <label for="tg-google-sheet" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-file-excel"></i> Ссылка на Google Таблицу:</label>
-                            <input type="text" id="tg-google-sheet" placeholder="https://docs.google.com/spreadsheets/d/..." style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
-                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Откройте доступ на редактирование для Email из Google Service Account.</small>
-                        </div>
-                        
-                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
-                            <label for="tg-tab-name" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-receipt"></i> Название вкладки (листа):</label>
-                            <input type="text" id="tg-tab-name" value="Лист1" placeholder="Лист1" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
-                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Имя листа, куда записывать данные. По умолчанию: <code>Лист1</code></small>
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 2;">
+                            <label for="tg-prompt-fields" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-list-check"></i> Поля (колонки) таблицы через запятую:</label>
+                            <input type="text" id="tg-prompt-fields" value="Название, Цена, Описание, Параметры" placeholder="Например: Название, Цена, Описание, Комплектация, Длина" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Задайте любые нужные колонки. Ссылки на фото добавятся в конец автоматически.</small>
                         </div>
                     </div>
                     
                     <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
-                        <label for="tg-prompt-instruction" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-brain"></i> Дополнительные инструкции для ИИ (Gemini) по форматированию:</label>
-                        <textarea id="tg-prompt-instruction" rows="3" placeholder="Например: Сделай описание структурированным с УТП, укажи комплектацию, напиши продающий заголовок для Авито..." style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem; resize: vertical;"></textarea>
-                        <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Промпт для Gemini, который будет использоваться для структурирования и форматирования текста объявления.</small>
+                        <label for="tg-prompt-instruction" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-brain"></i> Дополнительные инструкции для ИИ (Gemini) по форматированию полей:</label>
+                        <textarea id="tg-prompt-instruction" rows="2" placeholder="Например: Сделай описание структурированным с УТП, укажи комплектацию, напиши продающий заголовок для Авито..." style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem; resize: vertical;"></textarea>
+                        <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Специфические инструкции по тому, как форматировать значения в ячейках таблицы.</small>
                     </div>
                     
                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.25rem; margin-top: 0.5rem; flex-wrap: wrap;">
                         <button class="btn btn-glowing btn-lg" id="btn-tg-start" style="padding: 0.85rem 2rem;">
-                            <i class="fa-solid fa-play"></i> Запустить сканирование и импорт
+                            <i class="fa-solid fa-play"></i> Запустить сканирование и сборку
                         </button>
                         
                         <div id="tg-progress-info" style="display: none; flex: 1; display: flex; align-items: center; gap: 1rem; min-width: 280px;">
@@ -277,9 +271,24 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- Compiled TSV Output Panel -->
+                <div class="tsv-output-card" id="tg-output-card" style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; gap: 0.75rem; box-shadow: var(--shadow-lg);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fa-solid fa-clipboard-list" style="font-size: 1.2rem; color: var(--accent-green);"></i>
+                            <h4 style="font-size: 0.9rem; font-weight: 700; text-transform: uppercase; color: var(--text-primary); margin: 0; letter-spacing: 0.05em;">Результат для вставки в Google Таблицу / Excel</h4>
+                        </div>
+                        <button class="btn btn-success" id="btn-tg-copy-tsv" style="padding: 0.45rem 1.25rem; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; border-radius: 6px; border: none; font-weight: 600;">
+                            <i class="fa-solid fa-copy"></i> Скопировать всю таблицу
+                        </button>
+                    </div>
+                    <textarea id="tg-result-output" readonly rows="6" placeholder="Здесь появится сгенерированная таблица в формате TSV (одна строка - один товар). Вы сможете скопировать её одним кликом и вставить (Ctrl+V) в первую ячейку Excel или Google Sheets..." style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; background: var(--bg-main); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.75rem; border-radius: 6px; resize: vertical; font-size: 0.8rem; height: 180px;"></textarea>
+                    <small style="color: var(--text-muted); font-size: 0.75rem;">* Примечание: При копировании таблицы и её вставке (Ctrl+V) в Excel/Google Таблицы, данные автоматически разобьются по ячейкам.</small>
+                </div>
                 
                 <!-- Terminal Console Logs Panel -->
-                <div class="console-logs-card" style="background: #070B13; border: 1px solid var(--border-color); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; height: 400px; box-shadow: var(--shadow-lg);">
+                <div class="console-logs-card" style="background: #070B13; border: 1px solid var(--border-color); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; height: 350px; box-shadow: var(--shadow-lg);">
                     <div class="console-header" style="background: #0D1325; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
                         <div class="console-title" style="display: flex; align-items: center; gap: 0.5rem;">
                             <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-red);"></span>
@@ -332,12 +341,6 @@
                         </button>
                     </div>
                     <small>Токен для загрузки картинок в облако и автоматической публикации ссылок.</small>
-                </div>
-
-                <div class="form-group">
-                    <label for="google-sa-json-input">Google Service Account JSON Key:</label>
-                    <textarea id="google-sa-json-input" rows="4" placeholder='{ "type": "service_account", ... }' style="width: 100%; font-family: monospace; background: rgba(19, 27, 46, 0.4); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.5rem; border-radius: 6px; resize: vertical;"></textarea>
-                    <small>Вставьте полное содержимое JSON-файла ключа Google Service Account для подключения к Google Таблицам.</small>
                 </div>
 
 
