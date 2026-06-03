@@ -1085,4 +1085,74 @@ small {
     padding: 0 1.25rem;
 }
 
+/* Navigation Tab styling */
+.btn-tab {
+    background-color: transparent;
+    border: 1px solid transparent;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 0.5rem 1.25rem;
+    border-radius: 20px;
+    transition: var(--transition-normal);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+}
+
+.btn-tab:hover {
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.05);
+}
+
+.btn-tab.active {
+    color: var(--accent-cyan);
+    background-color: rgba(0, 240, 255, 0.1);
+    border-color: rgba(0, 240, 255, 0.25);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.15);
+}
+
+/* Full Width Panel for Table Generator */
+.full-width-panel {
+    max-width: 1200px !important;
+    margin: 2rem auto !important;
+    width: 95% !important;
+}
+
+/* Console logs style overrides */
+.console-logs-card {
+    box-shadow: var(--shadow-lg);
+}
+
+.console-body::-webkit-scrollbar {
+    width: 6px;
+}
+
+.console-body::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 3px;
+}
+
+.console-body::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-cyan);
+}
+
+.console-line.error {
+    color: var(--accent-red) !important;
+}
+
+.console-line.success {
+    color: var(--accent-green) !important;
+}
+
+.console-line.warning {
+    color: var(--accent-yellow) !important;
+}
+
+.console-line.system {
+    color: var(--text-muted) !important;
+}
+
+
 

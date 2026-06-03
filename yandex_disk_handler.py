@@ -110,3 +110,89 @@ class YandexDiskHandler:
         except Exception as e:
             print(f"Exception during Yandex Disk upload: {e}")
             return None
+
+    def check_directory_exists(self, path: str) -> bool:
+        """Checks if a directory exists at the given path on Yandex.Disk."""
+        encoded_path = urllib.parse.quote(path)
+        url = f"{self.base_url}/resources?path={encoded_path}&fields=type"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json().get("type") == "dir"
+            return False
+        except Exception as e:
+            print(f"Error checking directory existence: {e}")
+            return False
+
+    def list_subdirectories(self, path: str) -> list:
+        """Returns a list of names of all subdirectories inside the directory path."""
+        encoded_path = urllib.parse.quote(path)
+        url = f"{self.base_url}/resources?path={encoded_path}&limit=1000&fields=_embedded.items.name,_embedded.items.type"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get("_embedded", {}).get("items", [])
+                return [item["name"] for item in items if item.get("type") == "dir"]
+            return []
+        except Exception as e:
+            print(f"Error listing subdirectories: {e}")
+            return []
+
+    def list_files(self, path: str) -> list:
+        """Returns a list of files (dicts with name and path keys) inside the directory path."""
+        encoded_path = urllib.parse.quote(path)
+        url = f"{self.base_url}/resources?path={encoded_path}&limit=1000&fields=_embedded.items.name,_embedded.items.path,_embedded.items.type"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                items = data.get("_embedded", {}).get("items", [])
+                return [
+                    {"name": item["name"], "path": item["path"]}
+                    for item in items if item.get("type") == "file"
+                ]
+            return []
+        except Exception as e:
+            print(f"Error listing files: {e}")
+            return []
+
+    def download_file(self, remote_path: str, local_path: str) -> bool:
+        """Downloads a file from remote_path on Yandex.Disk to local_path on the host."""
+        encoded_path = urllib.parse.quote(remote_path)
+        url = f"{self.base_url}/resources/download?path={encoded_path}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                download_href = response.json().get("href")
+                if download_href:
+                    # Download file contents
+                    file_res = requests.get(download_href, stream=True, timeout=60)
+                    if file_res.status_code == 200:
+                        with open(local_path, "wb") as f:
+                            for chunk in file_res.iter_content(chunk_size=8192):
+                                f.write(chunk)
+                        return True
+            return False
+        except Exception as e:
+            print(f"Error downloading file: {e}")
+            return False
+
+    def publish_and_get_link(self, path: str) -> Optional[str]:
+        """Publishes a resource at path and returns its public download/view link."""
+        encoded_path = urllib.parse.quote(path)
+        try:
+            # 1. Publish
+            publish_url = f"{self.base_url}/resources/publish?path={encoded_path}"
+            requests.put(publish_url, headers=self.headers, timeout=10)
+            
+            # 2. Get public link metadata
+            meta_url = f"{self.base_url}/resources?path={encoded_path}&fields=public_url"
+            response = requests.get(meta_url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                return response.json().get("public_url")
+            return None
+        except Exception as e:
+            print(f"Error publishing resource: {e}")
+            return None
+

@@ -24,6 +24,17 @@
                     <p>9-слотовая маркетинговая автогенерация</p>
                 </div>
             </div>
+            
+            <!-- Navigation Workspace Toggle Tabs -->
+            <div class="app-navigation" style="display: flex; gap: 0.5rem; margin-left: 2.5rem; margin-right: auto;">
+                <button class="btn-tab active" id="tab-creative" data-tab="creative">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Креативы
+                </button>
+                <button class="btn-tab" id="tab-table" data-tab="table">
+                    <i class="fa-solid fa-table"></i> Генератор таблицы
+                </button>
+            </div>
+
             <div class="status-bar">
                 <div class="status-badge" id="status-gemini">
                     <span class="indicator"></span>
@@ -212,6 +223,84 @@
                     </div>
                 </div>
             </section>
+
+            <!-- Table Generator Workspace -->
+            <section class="workspace-panel full-width-panel" id="table-generator-panel" style="display: none; flex: 1; flex-direction: column; gap: 1.5rem;">
+                <div class="workspace-paths-bar">
+                    <div class="logo-area">
+                        <i class="fa-solid fa-table logo-icon" style="font-size: 1.8rem;"></i>
+                        <div class="logo-text">
+                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0;">Автоматическое заполнение Google Таблицы по Yandex.Disk</h2>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Автопарсинг локальных папок на Яндекс.Диске, структурирование Gemini и перенос в таблицу</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tg-setup-card" style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                            <label for="tg-yandex-folder" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-brands fa-yandex"></i> Папка на Яндекс.Диске с товарами:</label>
+                            <input type="text" id="tg-yandex-folder" placeholder="Например: /Товары" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Путь к папке, в которой лежат подпапки с товарами (название папки = название модели).</small>
+                        </div>
+                        
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                            <label for="tg-google-sheet" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-file-excel"></i> Ссылка на Google Таблицу:</label>
+                            <input type="text" id="tg-google-sheet" placeholder="https://docs.google.com/spreadsheets/d/..." style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Откройте доступ на редактирование для Email из Google Service Account.</small>
+                        </div>
+                        
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                            <label for="tg-tab-name" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-receipt"></i> Название вкладки (листа):</label>
+                            <input type="text" id="tg-tab-name" value="Лист1" placeholder="Лист1" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Имя листа, куда записывать данные. По умолчанию: <code>Лист1</code></small>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                        <label for="tg-prompt-instruction" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-brain"></i> Дополнительные инструкции для ИИ (Gemini) по форматированию:</label>
+                        <textarea id="tg-prompt-instruction" rows="3" placeholder="Например: Сделай описание структурированным с УТП, укажи комплектацию, напиши продающий заголовок для Авито..." style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem; resize: vertical;"></textarea>
+                        <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Промпт для Gemini, который будет использоваться для структурирования и форматирования текста объявления.</small>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.25rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                        <button class="btn btn-glowing btn-lg" id="btn-tg-start" style="padding: 0.85rem 2rem;">
+                            <i class="fa-solid fa-play"></i> Запустить сканирование и импорт
+                        </button>
+                        
+                        <div id="tg-progress-info" style="display: none; flex: 1; display: flex; align-items: center; gap: 1rem; min-width: 280px;">
+                            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500; min-width: 150px; max-width: 250px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" id="tg-current-folder-text"></span>
+                            <div class="activity-progress-container" style="flex: 1; height: 10px; margin-bottom: 0; background: rgba(31, 46, 84, 0.4); border-radius: 5px; overflow: hidden;">
+                                <div class="activity-progress-bar" id="tg-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple)); transition: width 0.4s ease;"></div>
+                            </div>
+                            <span class="badge" id="tg-progress-percent" style="min-width: 48px; text-align: center; font-weight: 700; color: var(--accent-cyan);">0%</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Terminal Console Logs Panel -->
+                <div class="console-logs-card" style="background: #070B13; border: 1px solid var(--border-color); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; height: 400px; box-shadow: var(--shadow-lg);">
+                    <div class="console-header" style="background: #0D1325; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                        <div class="console-title" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-red);"></span>
+                            <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-yellow);"></span>
+                            <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-green);"></span>
+                            <span class="title-text" style="font-family: monospace; font-size: 0.85rem; color: var(--text-muted); margin-left: 0.5rem; font-weight: 600;">Терминал процесса (логирование)</span>
+                        </div>
+                        <div class="console-actions" style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary" id="btn-tg-clear-logs" title="Очистить консоль" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; height: auto;">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                            <button class="btn btn-secondary" id="btn-tg-copy-logs" title="Копировать все логи" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; height: auto;">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="console-body" id="tg-console-body" style="flex: 1; padding: 1.25rem; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; line-height: 1.6; color: var(--accent-cyan); display: flex; flex-direction: column; gap: 0.35rem;">
+                        <div class="console-line system" style="color: var(--text-muted);">[Система] Консоль инициализирована. Задайте настройки выше и нажмите кнопку запуска.</div>
+                    </div>
+                </div>
+            </section>
         </main>
     </div>
 
@@ -244,6 +333,13 @@
                     </div>
                     <small>Токен для загрузки картинок в облако и автоматической публикации ссылок.</small>
                 </div>
+
+                <div class="form-group">
+                    <label for="google-sa-json-input">Google Service Account JSON Key:</label>
+                    <textarea id="google-sa-json-input" rows="4" placeholder='{ "type": "service_account", ... }' style="width: 100%; font-family: monospace; background: rgba(19, 27, 46, 0.4); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.5rem; border-radius: 6px; resize: vertical;"></textarea>
+                    <small>Вставьте полное содержимое JSON-файла ключа Google Service Account для подключения к Google Таблицам.</small>
+                </div>
+
 
                 <div class="form-group">
                     <label for="generation-delay-input">Задержка между генерациями картинок (в секундах):</label>

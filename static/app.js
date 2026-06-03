@@ -76,7 +76,33 @@ const elements = {
     projectFileInput: document.getElementById('project-file-input'),
     
     // Generation Delay Setting
-    generationDelayInput: document.getElementById('generation-delay-input')
+    generationDelayInput: document.getElementById('generation-delay-input'),
+    
+    // Google Service Account JSON text area
+    googleSaJsonInput: document.getElementById('google-sa-json-input'),
+    
+    // Navigation Tabs
+    tabCreative: document.getElementById('tab-creative'),
+    tabTable: document.getElementById('tab-table'),
+    
+    // Sidebar Element wrapper for toggle
+    sidebarPanel: document.querySelector('.sidebar-panel'),
+    workspacePanel: document.querySelector('.workspace-panel'),
+    
+    // Table Generator Panel elements
+    tableGeneratorPanel: document.getElementById('table-generator-panel'),
+    tgYandexFolder: document.getElementById('tg-yandex-folder'),
+    tgGoogleSheet: document.getElementById('tg-google-sheet'),
+    tgTabName: document.getElementById('tg-tab-name'),
+    tgPromptInstruction: document.getElementById('tg-prompt-instruction'),
+    btnTgStart: document.getElementById('btn-tg-start'),
+    tgProgressInfo: document.getElementById('tg-progress-info'),
+    tgCurrentFolderText: document.getElementById('tg-current-folder-text'),
+    tgProgressFill: document.getElementById('tg-progress-fill'),
+    tgProgressPercent: document.getElementById('tg-progress-percent'),
+    btnTgClearLogs: document.getElementById('btn-tg-clear-logs'),
+    btnTgCopyLogs: document.getElementById('btn-tg-copy-logs'),
+    tgConsoleBody: document.getElementById('tg-console-body')
 };
 
 // Event Listeners
@@ -85,6 +111,11 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 function initializeApp() {
     loadConfig();
     setupEventListeners();
+    
+    // Check if table generator is active in background on page load
+    setTimeout(() => {
+        pollTableGeneratorStatus(true);
+    }, 1000);
 }
 
 function setupEventListeners() {
@@ -163,6 +194,25 @@ function setupEventListeners() {
     if (elements.projectFileInput) {
         elements.projectFileInput.addEventListener('change', importProjectSettings);
     }
+    
+    // Tab switching event listeners
+    if (elements.tabCreative) {
+        elements.tabCreative.addEventListener('click', () => switchTab('creative'));
+    }
+    if (elements.tabTable) {
+        elements.tabTable.addEventListener('click', () => switchTab('table'));
+    }
+    
+    // Table Generator controls
+    if (elements.btnTgStart) {
+        elements.btnTgStart.addEventListener('click', runTableGeneration);
+    }
+    if (elements.btnTgClearLogs) {
+        elements.btnTgClearLogs.addEventListener('click', clearTgConsole);
+    }
+    if (elements.btnTgCopyLogs) {
+        elements.btnTgCopyLogs.addEventListener('click', copyTgLogs);
+    }
 }
 
 // Modal Helper Functions
@@ -224,6 +274,9 @@ async function loadConfig() {
         // Populate inputs
         elements.geminiKeyInput.value = config.gemini_api_key || '';
         elements.yandexTokenInput.value = config.yandex_token || '';
+        if (elements.googleSaJsonInput) {
+            elements.googleSaJsonInput.value = config.google_service_account_json || '';
+        }
         
         elements.globalContext.value = config.global_context || '';
         elements.visualStyle.value = config.visual_style || '';
@@ -233,6 +286,11 @@ async function loadConfig() {
         elements.yandexDirInputWs.value = config.default_yandex_dir || '';
         if (elements.generationDelayInput) {
             elements.generationDelayInput.value = config.generation_delay_sec !== undefined ? config.generation_delay_sec : 5;
+        }
+        
+        // Populate table generator default folder from config default
+        if (elements.tgYandexFolder && !elements.tgYandexFolder.value) {
+            elements.tgYandexFolder.value = config.default_yandex_dir || '';
         }
         
         // Trigger verification
@@ -247,6 +305,7 @@ async function saveModalConfig() {
     const newConfig = {
         gemini_api_key: elements.geminiKeyInput.value,
         yandex_token: elements.yandexTokenInput.value,
+        google_service_account_json: elements.googleSaJsonInput ? elements.googleSaJsonInput.value : '',
         default_local_dir: elements.localDirInput.value,
         default_yandex_dir: elements.yandexDirInput.value,
         global_context: elements.globalContext.value,
@@ -262,6 +321,7 @@ async function saveSidebarConfig() {
     const newConfig = {
         gemini_api_key: elements.geminiKeyInput.value,
         yandex_token: elements.yandexTokenInput.value,
+        google_service_account_json: elements.googleSaJsonInput ? elements.googleSaJsonInput.value : '',
         default_local_dir: elements.localDirInput.value,
         default_yandex_dir: elements.yandexDirInput.value,
         global_context: elements.globalContext.value,
@@ -1306,4 +1366,190 @@ async function handleLogout() {
             alert('Ошибка сети при выходе.');
         }
     }
+}
+
+// Tab Switching between workspaces
+function switchTab(tabId) {
+    if (tabId === 'creative') {
+        elements.tabCreative.classList.add('active');
+        elements.tabTable.classList.remove('active');
+        
+        elements.sidebarPanel.style.display = '';
+        elements.workspacePanel.style.display = '';
+        elements.tableGeneratorPanel.style.display = 'none';
+    } else if (tabId === 'table') {
+        elements.tabCreative.classList.remove('active');
+        elements.tabTable.classList.add('active');
+        
+        elements.sidebarPanel.style.display = 'none';
+        elements.workspacePanel.style.display = 'none';
+        elements.tableGeneratorPanel.style.display = 'flex';
+        
+        // Start polling immediately when entering the tab in case a task is already running in background
+        pollTableGeneratorStatus(true);
+    }
+}
+
+// Clear Terminal logs console
+function clearTgConsole() {
+    elements.tgConsoleBody.innerHTML = '<div class="console-line system" style="color: var(--text-muted);">[Система] Консоль очищена.</div>';
+}
+
+// Copy Terminal logs to clipboard
+function copyTgLogs() {
+    const text = elements.tgConsoleBody.innerText;
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Логи успешно скопированы в буфер обмена!', 'success');
+    }).catch(err => {
+        console.error('Failed to copy logs:', err);
+        showNotification('Не удалось скопировать логи', 'error');
+    });
+}
+
+let tgPollInterval = null;
+let lastLogLength = 0;
+
+// Start Table Generation process
+async function runTableGeneration() {
+    const folder = elements.tgYandexFolder.value.trim();
+    const sheetUrl = elements.tgGoogleSheet.value.trim();
+    const tabName = elements.tgTabName.value.trim();
+    const instruction = elements.tgPromptInstruction.value.trim();
+    
+    if (!folder) {
+        showNotification('Пожалуйста, укажите папку на Яндекс.Диске', 'warning');
+        return;
+    }
+    if (!sheetUrl) {
+        showNotification('Пожалуйста, укажите ссылку на Google Таблицу', 'warning');
+        return;
+    }
+    
+    elements.btnTgStart.disabled = true;
+    elements.btnTgStart.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Выполняется...';
+    
+    appendTgConsoleLog('[Система] Запуск фонового процесса сканирования и импорта...', 'system');
+    
+    try {
+        const response = await fetch('/api/table-generator/scan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                yandex_folder_path: folder,
+                google_sheet_url: sheetUrl,
+                tab_name: tabName || 'Лист1',
+                prompt_instruction: instruction
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showNotification('Процесс генерации таблицы успешно запущен!', 'success');
+            elements.tgProgressInfo.style.display = 'flex';
+            lastLogLength = 0;
+            
+            // Start polling status
+            if (tgPollInterval) clearInterval(tgPollInterval);
+            tgPollInterval = setInterval(pollTableGeneratorStatus, 2000);
+        } else {
+            showNotification(result.detail || 'Не удалось запустить процесс', 'error');
+            appendTgConsoleLog(`[Ошибка] Сбой запуска: ${result.detail || 'Неизвестная ошибка'}`, 'error');
+            elements.btnTgStart.disabled = false;
+            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и импорт';
+        }
+    } catch (error) {
+        console.error('Run table generation error:', error);
+        showNotification('Ошибка соединения при запуске процесса', 'error');
+        appendTgConsoleLog(`[Ошибка] Сетевой сбой при отправке запроса.`, 'error');
+        elements.btnTgStart.disabled = false;
+        elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и импорт';
+    }
+}
+
+// Poll Background task status
+async function pollTableGeneratorStatus(quiet = false) {
+    try {
+        const response = await fetch('/api/table-generator/status');
+        if (!response.ok) return;
+        
+        const status = await response.json();
+        
+        // Show progress if active or completed
+        if (status.active || status.progress > 0) {
+            elements.tgProgressInfo.style.display = 'flex';
+            elements.tgProgressFill.style.width = `${status.progress}%`;
+            elements.tgProgressPercent.innerText = `${status.progress}%`;
+            elements.tgCurrentFolderText.innerText = status.current_folder ? `Сканирование: ${status.current_folder}` : 'Подготовка...';
+        }
+        
+        // Append new log lines
+        if (status.logs && status.logs.length > lastLogLength) {
+            const newLogs = status.logs.slice(lastLogLength);
+            newLogs.forEach(line => {
+                let type = 'system';
+                if (line.includes('ОШИБКА') || line.includes('Ошибка') || line.includes('КРИТИЧЕСКАЯ')) {
+                    type = 'error';
+                } else if (line.includes('успешно') || line.includes('Успешный') || line.includes('ЗАВЕРШЕНА')) {
+                    type = 'success';
+                } else if (line.includes('Предупреждение') || line.includes('Внимание')) {
+                    type = 'warning';
+                }
+                appendTgConsoleLog(line, type);
+            });
+            lastLogLength = status.logs.length;
+        }
+        
+        // Handle task completion or failure
+        if (!status.active) {
+            if (tgPollInterval) {
+                clearInterval(tgPollInterval);
+                tgPollInterval = null;
+            }
+            
+            elements.btnTgStart.disabled = false;
+            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-play"></i> Запустить сканирование и импорт';
+            
+            if (status.error) {
+                if (!quiet) showNotification('Сбой процесса генерации таблицы', 'error');
+                appendTgConsoleLog(`[Сбой] Процесс прерван из-за ошибки: ${status.error}`, 'error');
+            } else if (status.progress >= 100.0) {
+                if (!quiet) showNotification('Импорт таблицы полностью завершен!', 'success');
+            }
+        } else {
+            // Task is active, disable start button and show spinner
+            elements.btnTgStart.disabled = true;
+            elements.btnTgStart.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Выполняется...';
+            
+            // If active and we are not polling, start interval
+            if (!tgPollInterval) {
+                tgPollInterval = setInterval(pollTableGeneratorStatus, 2000);
+            }
+        }
+    } catch (error) {
+        console.error('Error polling table generator status:', error);
+    }
+}
+
+// Append a formatted line to the terminal console log
+function appendTgConsoleLog(message, type = 'system') {
+    const lineEl = document.createElement('div');
+    lineEl.className = `console-line ${type}`;
+    
+    // Style lines depending on the type
+    if (type === 'error') {
+        lineEl.style.color = 'var(--accent-red)';
+    } else if (type === 'success') {
+        lineEl.style.color = 'var(--accent-green)';
+    } else if (type === 'warning') {
+        lineEl.style.color = 'var(--accent-yellow)';
+    } else {
+        lineEl.style.color = 'var(--accent-cyan)';
+    }
+    
+    lineEl.innerText = message;
+    elements.tgConsoleBody.appendChild(lineEl);
+    
+    // Auto-scroll to bottom of console logs panel
+    elements.tgConsoleBody.scrollTop = elements.tgConsoleBody.scrollHeight;
 }
