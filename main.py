@@ -80,49 +80,69 @@ logging.basicConfig(
 logger = logging.getLogger("generator_kreo")
 
 # Default configuration structure
-DEFAULT_CONFIG = {
-    "gemini_api_key": "AIzaSyCFzzlKyJCCCZGYMOWqtYruENZirNdWTYc",
-    "yandex_token": "y0__wgBENSx9gsYivVCIOae1uIX_YFoFD1DAoZgh5F5-Pp9r8Uy6Zs",
-    "yandex_client_id": "bb9d4b22f0884401a1aa1695def54e2d",
-    "yandex_client_secret": "89d8a53154444685a37738431393cf40",
-    "google_service_account_json": "",
-    "default_local_dir": os.path.join(DATA_DIR, "local_output"),
-    "default_yandex_dir": "/Generator_Kreo",
-    "global_context": (
-        "Продукт: Современные бани-бочки формы «Квадро» (закругленный квадрат) двух размеров: 2х2 метра и 2х4 метра под ключ.\n"
-        "УТП:\n"
-        "- Доступная цена: 2х2 от 185 000 ₽, 2х4 от 299 000 ₽ под ключ.\n"
-        "- 9 цветов пропитки дерева на выбор.\n"
-        "- Надежные стяжные обручи с регулировкой натяжения.\n"
-        "Материалы:\n"
-        "- Качественный профилированный брус с пропиткой теплого коньячно-каштанового оттенка (орех/тик).\n"
-        "- Кровля — мягкая черепица «соты» бордово-черного цвета.\n"
-        "Установка:\n"
-        "- Быстрая доставка манипулятором и установка на 4 бетонных блока с подсыпкой из щебня на дачном участке за 1 день.\n"
-        "Площадка:\n"
-        "- Реклама для Авито. Картинки должны быть реалистичными любительскими фотографиями готовых бань на дачных участках (снятыми на смартфон), чтобы вызывать максимальное доверие покупателей."
-    ),
-    "visual_style": (
-        "Cozy modern wooden bathhouse, warm and inviting atmosphere. "
-        "High-end photorealistic design, warm dramatic golden hour lighting, "
-        "detailed wood textures, steam rising gently, cinematic composition, 8k resolution, no text."
-    ),
-    "generation_delay_sec": 5
-}
+SYSTEM_DEFAULTS_FILE = os.path.join(DATA_DIR, "system_defaults.json")
+
+def load_system_defaults() -> dict:
+    # Baseline fallback defaults with empty credentials in git
+    defaults = {
+        "gemini_api_key": "",
+        "yandex_token": "",
+        "yandex_client_id": "",
+        "yandex_client_secret": "",
+        "google_service_account_json": "",
+        "default_local_dir": os.path.join(DATA_DIR, "local_output"),
+        "default_yandex_dir": "/Generator_Kreo",
+        "global_context": (
+            "Продукт: Современные бани-бочки формы «Квадро» (закругленный квадрат) двух размеров: 2х2 метра и 2х4 метра под ключ.\n"
+            "УТП:\n"
+            "- Доступная цена: 2х2 от 185 000 ₽, 2х4 от 299 000 ₽ под ключ.\n"
+            "- 9 цветов пропитки дерева на выбор.\n"
+            "- Надежные стяжные обручи с регулировкой натяжения.\n"
+            "Материалы:\n"
+            "- Качественный профилированный брус с пропиткой теплого коньячно-каштанового оттенка (орех/тик).\n"
+            "- Кровля — мягкая черепица «соты» бордово-черного цвета.\n"
+            "Установка:\n"
+            "- Быстрая доставка манипулятором и установка на 4 бетонных блока с подсыпкой из щебня на дачном участке за 1 день.\n"
+            "Площадка:\n"
+            "- Реклама для Авито. Картинки должны быть реалистичными любительскими фотографиями готовых бань на дачных участках (снятыми на смартфон), чтобы вызывать максимальное доверие покупателей."
+        ),
+        "visual_style": (
+            "Cozy modern wooden bathhouse, warm and inviting atmosphere. "
+            "High-end photorealistic design, warm dramatic golden hour lighting, "
+            "detailed wood textures, steam rising gently, cinematic composition, 8k resolution, no text."
+        ),
+        "generation_delay_sec": 5
+    }
+    
+    # Try to load custom defaults from system_defaults.json on the server/host
+    if os.path.exists(SYSTEM_DEFAULTS_FILE):
+        try:
+            with open(SYSTEM_DEFAULTS_FILE, "r", encoding="utf-8") as f:
+                saved_defaults = json.load(f)
+                for k, v in saved_defaults.items():
+                    if v: # Only override if the value is not empty
+                        defaults[k] = v
+        except Exception as e:
+            logger.error(f"Error loading system_defaults.json: {e}")
+            
+    return defaults
+
+DEFAULT_CONFIG = load_system_defaults()
 
 def load_config() -> dict:
+    defaults = load_system_defaults()
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
                 # Merge with default config to ensure all keys are present and not empty
-                for k, v in DEFAULT_CONFIG.items():
+                for k, v in defaults.items():
                     if k not in config or not config[k]:
                         config[k] = v
                 return config
         except Exception as e:
-            print(f"Error loading config: {e}")
-    return DEFAULT_CONFIG.copy()
+            logger.error(f"Error loading config: {e}")
+    return defaults.copy()
 
 def save_config(config: dict) -> None:
     try:
