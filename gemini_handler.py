@@ -1,12 +1,17 @@
 import requests
 import json
 import base64
+import os
 from typing import List, Dict, Any, Optional
 
 class GeminiHandler:
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, proxy: Optional[str] = None):
         self.api_key = api_key
         self.headers = {"Content-Type": "application/json"}
+        # Read proxy from parameter or environment variable
+        self.proxy = proxy or os.environ.get("GEMINI_PROXY")
+        self.proxies = {"http": self.proxy, "https": self.proxy} if self.proxy else None
+        
         # We use direct REST API endpoints for maximum compatibility on any Python version.
         self.text_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={self.api_key}"
         self.image_url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key={self.api_key}"
@@ -16,7 +21,7 @@ class GeminiHandler:
         delay = 10.0
         for attempt in range(max_retries):
             try:
-                response = requests.post(url, headers=self.headers, json=payload, timeout=timeout)
+                response = requests.post(url, headers=self.headers, json=payload, timeout=timeout, proxies=self.proxies)
                 if response.status_code == 429:
                     print(f"[RATE LIMIT] Got 429 (Resource Exhausted). Retrying in {delay} seconds (Attempt {attempt+1}/{max_retries})...")
                     time.sleep(delay)
@@ -29,7 +34,7 @@ class GeminiHandler:
                 print(f"[CONNECTION ERROR] {e}. Retrying in {delay} seconds (Attempt {attempt+1}/{max_retries})...")
                 time.sleep(delay)
                 delay *= 1.5
-        return requests.post(url, headers=self.headers, json=payload, timeout=timeout)
+        return requests.post(url, headers=self.headers, json=payload, timeout=timeout, proxies=self.proxies)
 
     def check_connection(self) -> bool:
         """Verify the API key by making a simple request to list models or generate a tiny text."""
@@ -39,7 +44,7 @@ class GeminiHandler:
             "generationConfig": {"maxOutputTokens": 5}
         }
         try:
-            response = requests.post(test_url, headers=self.headers, json=payload, timeout=10)
+            response = requests.post(test_url, headers=self.headers, json=payload, timeout=10, proxies=self.proxies)
             return response.status_code == 200
         except Exception:
             return False

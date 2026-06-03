@@ -8,5 +8,15 @@ services:
       - "8005:8000"
     volumes:
       - ./data:/app/data
+    networks:
+      - default
+      - dokploy-net
+    environment:
+      - GEMINI_PROXY=http://warp:1080
     restart: always
+
+networks:
+  dokploy-net:
+    external: true
+    name: dokploy-network
 
