@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator Kreo — Умный генератор рекламных кампаний</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <i class="fa-solid fa-wand-magic-sparkles logo-icon"></i>
+                <div class="logo-text">
+                    <h1>GENERATOR <span>KREO</span></h1>
+                    <p>9-слотовая маркетинговая автогенерация</p>
+                </div>
+            </div>
+            <div class="status-bar">
+                <div class="status-badge" id="status-gemini">
+                    <span class="indicator"></span>
+                    <i class="fa-brands fa-google"></i> Gemini API: <span class="text">Проверка...</span>
+                </div>
+                <div class="status-badge" id="status-yandex">
+                    <span class="indicator"></span>
+                    <i class="fa-brands fa-yandex"></i> Яндекс.Диск: <span class="text">Проверка...</span>
+                </div>
+                <button class="btn btn-secondary btn-icon" id="btn-open-settings" title="Настройки API">
+                    <i class="fa-solid fa-cog"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Layout -->
+        <main class="app-content">
+            <!-- Sidebar Panel: Global settings & Setup -->
+            <aside class="sidebar-panel">
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-bullseye"></i>
+                        <h3>Глобальный маркетинг</h3>
+                    </div>
+                    <div class="form-group">
+                        <label for="global-context">Маркетинговый контекст (продукт, УТП, ЦА):</label>
+                        <textarea id="global-context" rows="6" placeholder="Опишите общие преимущества бань, целевую аудиторию, ценовые рамки, особенности монтажа..."></textarea>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-palette"></i>
+                        <h3>Визуальный стиль</h3>
+                    </div>
+                    <div class="form-group">
+                        <label for="visual-style">Промпт-гайд стиля (атмосфера, свет, ракурс):</label>
+                        <textarea id="visual-style" rows="5" placeholder="Опишите, как должны выглядеть картинки: теплый свет, фотореализм, дерево, пар, отсутствие текста и водяных знаков..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Стилевые референсы (изображения):</label>
+                        <div class="upload-zone" id="ref-upload-zone">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                            <p>Перетащите файлы сюда или кликните для загрузки</p>
+                            <input type="file" id="ref-file-input" multiple accept="image/*" style="display: none;">
+                        </div>
+                        <div class="reference-previews" id="ref-previews-container"></div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-folder-open"></i>
+                        <h3>Настройки путей сохранения</h3>
+                    </div>
+                    <div class="form-group">
+                        <label for="local-dir-input">Локальная папка на ПК для сохранения:</label>
+                        <input type="text" id="local-dir-input" placeholder="D:\Бани_Креативы">
+                        <small>Сюда будут автоматически сохранены итоговые файлы</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="yandex-dir-input">Папка на Яндекс.Диске:</label>
+                        <input type="text" id="yandex-dir-input" placeholder="/Генератор_Бани">
+                        <small>Корневая папка на Диске для рекламных кампаний</small>
+                    </div>
+                    <button class="btn btn-primary w-full" id="btn-save-sidebar-configs">
+                        <i class="fa-solid fa-floppy-disk"></i> Сохранить настройки кампании
+                    </button>
+                    <div class="project-actions-row" style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                        <button class="btn btn-secondary flex-1 btn-icon-text" id="btn-export-project" title="Сохранить настройки проекта в файл">
+                            <i class="fa-solid fa-file-export"></i> Экспорт
+                        </button>
+                        <button class="btn btn-secondary flex-1 btn-icon-text" id="btn-import-project" title="Загрузить настройки проекта из файла">
+                            <i class="fa-solid fa-file-import"></i> Импорт
+                        </button>
+                        <input type="file" id="project-file-input" accept=".json" style="display: none;">
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Workspace: Workspace containing generator actions & slot output -->
+            <section class="workspace-panel">
+                <!-- Paths Configuration Bar -->
+                <div class="workspace-paths-bar">
+                    <div class="path-input-group">
+                        <label for="yandex-dir-input-ws"><i class="fa-brands fa-yandex"></i> Папка на Яндекс.Диске:</label>
+                        <input type="text" id="yandex-dir-input-ws" placeholder="/Generator_Kreo">
+                    </div>
+                    <div class="path-input-group">
+                        <label for="local-dir-input-ws"><i class="fa-solid fa-folder-open"></i> Локальная папка на ПК:</label>
+                        <input type="text" id="local-dir-input-ws" placeholder="D:\Бани_Креативы">
+                    </div>
+                </div>
+
+                <!-- Ad Input Bar -->
+                <div class="ad-generator-bar">
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-pen-nib input-icon"></i>
+                        <input type="text" id="ad-input" placeholder="Введите параметры конкретного объявления (например: Квадро-баня 2х2, каркасная, 500 000 руб., печь в подарок, доставка за 1 день)...">
+                    </div>
+                    <button class="btn btn-glowing btn-lg" id="btn-run-analysis">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Разложить на 9 слотов
+                    </button>
+                </div>
+
+                <!-- Real-time Activity Progress Bar -->
+                <div class="activity-status-bar" id="activity-status-bar" style="display: none;">
+                    <div class="activity-info">
+                        <i class="fa-solid fa-circle-notch fa-spin activity-loader"></i>
+                        <span id="activity-status-text">Идет генерация пакета картинок...</span>
+                    </div>
+                    <div class="activity-progress-container">
+                        <div class="activity-progress-bar" id="activity-progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div class="workspace-empty-state" id="workspace-empty">
+                    <div class="empty-icon-wrap">
+                        <i class="fa-solid fa-folder-plus"></i>
+                    </div>
+                    <h2>Готов к генерации креативов</h2>
+                    <p>Настройте глобальный контекст слева, введите параметры конкретного рекламного объявления в поле выше и нажмите кнопку «Разложить на 9 слотов». Система автоматически сгенерирует маркетинговую схему, тексты для баннеров, промпты и картинки.</p>
+                </div>
+
+                <!-- Active Generator View -->
+                <div class="generator-view" id="generator-workspace" style="display: none;">
+                    <div class="workspace-header-actions">
+                        <div class="ad-summary-title">
+                            <span class="badge">Объявление</span>
+                            <h2 id="ad-summary-text">Загрузка объявления...</h2>
+                        </div>
+                        <div class="bulk-actions">
+                            <button class="btn btn-secondary btn-icon-text" id="btn-generate-all">
+                                <i class="fa-solid fa-images"></i> Генерировать все картинки
+                            </button>
+                            <button class="btn btn-secondary btn-icon-text" id="btn-upload-all">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Все на Яндекс.Диск
+                            </button>
+                            <button class="btn btn-secondary btn-icon-text" id="btn-copy-all-links" style="display: none;">
+                                <i class="fa-solid fa-copy"></i> Скопировать ссылки на ЯД
+                            </button>
+                            <button class="btn btn-success btn-icon-text" id="btn-download-all-zip" style="display: none;">
+                                <i class="fa-solid fa-file-zipper"></i> Скачать ZIP-архив
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Excel Export Helper Box -->
+                    <div class="excel-export-panel" id="excel-export-panel" style="display: none;">
+                        <div class="excel-panel-header">
+                            <i class="fa-solid fa-file-excel excel-icon"></i>
+                            <h4>Строка импорта для Excel (1 строка)</h4>
+                        </div>
+                        <div class="excel-panel-body">
+                            <div class="excel-inputs-row">
+                                <div class="excel-field-group">
+                                    <label>Название товара (Столбец А)</label>
+                                    <input type="text" id="excel-product-name" placeholder="Название товара...">
+                                </div>
+                                <div class="excel-field-group">
+                                    <label>Параметры (Столбец B)</label>
+                                    <input type="text" id="excel-parameters" placeholder="Характеристики...">
+                                </div>
+                                <div class="excel-field-group flex-2">
+                                    <label>Готовая строка для Excel (Столбцы A, B, C)</label>
+                                    <div class="excel-copy-input-wrap">
+                                        <textarea id="excel-row-output" readonly rows="1" placeholder="Здесь появится строка для копирования в Excel..."></textarea>
+                                        <button class="btn btn-success" id="btn-copy-excel-row" title="Скопировать строку для вставки в Excel">
+                                            <i class="fa-solid fa-copy"></i> Скопировать
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Slots Grid (9 items) -->
+                    <div class="slots-grid" id="slots-container">
+                        <!-- 9 slots dynamically inserted here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- API Keys / Credentials Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-key"></i> Ключи API и Интеграция</h3>
+                <button class="btn-close-modal" id="btn-close-settings-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="gemini-key-input">Google Gemini API Key:</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="gemini-key-input" placeholder="AIzaSy...">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('gemini-key-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Используется для маркетингового анализа текста и генерации изображений через Imagen 3.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="yandex-token-input">Яндекс.Диск OAuth Токен:</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="yandex-token-input" placeholder="y0_...">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('yandex-token-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Токен для загрузки картинок в облако и автоматической публикации ссылок.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="generation-delay-input">Задержка между генерациями картинок (в секундах):</label>
+                    <input type="number" id="generation-delay-input" min="0" max="60" value="5" style="width: 100%;">
+                    <small>Задержка помогает избежать ошибок превышения лимитов (Rate Limits / HTTP 429) на бесплатном тарифе Google AI Studio. Рекомендуется установить от 5 до 10 секунд.</small>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <div>
+                        <strong>Где взять токен Яндекс.Диска?</strong><br>
+                        Зарегистрируйте приложение на <a href="https://oauth.yandex.ru/" target="_blank">oauth.yandex.ru</a> с правами на Яндекс.Диск (запись и чтение) или используйте сервис Яндекса для получения токена.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-cancel-settings">Отмена</button>
+                <button class="btn btn-primary" id="btn-save-settings">Сохранить ключи</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Image Viewer Modal -->
+    <div class="modal-overlay" id="image-viewer-modal">
+        <div class="modal-card modal-large">
+            <div class="modal-header">
+                <h3 id="viewer-title">Просмотр изображения</h3>
+                <button class="btn-close-modal" id="btn-close-viewer-modal">&times;</button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="viewer-img" src="" alt="Креатив крупным планом">
+                <div class="viewer-details mt-4">
+                    <p><strong>Оффер:</strong> <span id="viewer-banner-text"></span></p>
+                    <p><strong>Промпт:</strong> <span id="viewer-prompt" class="prompt-text-block"></span></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-close-viewer">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        function togglePassword(id) {
+            const input = document.getElementById(id);
+            const icon = input.nextElementSibling.querySelector('i');
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = "password";
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+    </script>
+</body>
+</html>

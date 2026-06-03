@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  generator-kreo:
+    build: .
+    container_name: generator-kreo-app
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    restart: always
