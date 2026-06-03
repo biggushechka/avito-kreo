@@ -81,8 +81,8 @@ logger = logging.getLogger("generator_kreo")
 
 # Default configuration structure
 DEFAULT_CONFIG = {
-    "gemini_api_key": "",
-    "yandex_token": "",
+    "gemini_api_key": "AIzaSyCFzzlKyJCCCZGYMOWqtYruENZirNdWTYc",
+    "yandex_token": "y0__wgBENSx9gsYivVCIOae1uIX_YFoFD1DAoZgh5F5-Pp9r8Uy6Zs",
     "google_service_account_json": "",
     "default_local_dir": os.path.join(DATA_DIR, "local_output"),
     "default_yandex_dir": "/Generator_Kreo",
@@ -113,9 +113,9 @@ def load_config() -> dict:
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                # Merge with default config to ensure all keys are present
+                # Merge with default config to ensure all keys are present and not empty
                 for k, v in DEFAULT_CONFIG.items():
-                    if k not in config:
+                    if k not in config or not config[k]:
                         config[k] = v
                 return config
         except Exception as e:
