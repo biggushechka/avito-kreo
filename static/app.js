@@ -50,6 +50,8 @@ const elements = {
     settingsModal: document.getElementById('settings-modal'),
     geminiKeyInput: document.getElementById('gemini-key-input'),
     yandexTokenInput: document.getElementById('yandex-token-input'),
+    yandexClientIdInput: document.getElementById('yandex-client-id-input'),
+    yandexClientSecretInput: document.getElementById('yandex-client-secret-input'),
     btnSaveSettings: document.getElementById('btn-save-settings'),
     btnCancelSettings: document.getElementById('btn-cancel-settings'),
     btnCloseSettings: document.getElementById('btn-close-settings-modal'),
@@ -278,6 +280,12 @@ async function loadConfig() {
         // Populate inputs
         elements.geminiKeyInput.value = config.gemini_api_key || '';
         elements.yandexTokenInput.value = config.yandex_token || '';
+        if (elements.yandexClientIdInput) {
+            elements.yandexClientIdInput.value = config.yandex_client_id || '';
+        }
+        if (elements.yandexClientSecretInput) {
+            elements.yandexClientSecretInput.value = config.yandex_client_secret || '';
+        }
         if (elements.googleSaJsonInput) {
             elements.googleSaJsonInput.value = config.google_service_account_json || '';
         }
@@ -309,6 +317,8 @@ async function saveModalConfig() {
     const newConfig = {
         gemini_api_key: elements.geminiKeyInput.value,
         yandex_token: elements.yandexTokenInput.value,
+        yandex_client_id: elements.yandexClientIdInput ? elements.yandexClientIdInput.value : '',
+        yandex_client_secret: elements.yandexClientSecretInput ? elements.yandexClientSecretInput.value : '',
         google_service_account_json: elements.googleSaJsonInput ? elements.googleSaJsonInput.value : '',
         default_local_dir: elements.localDirInput.value,
         default_yandex_dir: elements.yandexDirInput.value,
@@ -325,6 +335,8 @@ async function saveSidebarConfig() {
     const newConfig = {
         gemini_api_key: elements.geminiKeyInput.value,
         yandex_token: elements.yandexTokenInput.value,
+        yandex_client_id: elements.yandexClientIdInput ? elements.yandexClientIdInput.value : '',
+        yandex_client_secret: elements.yandexClientSecretInput ? elements.yandexClientSecretInput.value : '',
         google_service_account_json: elements.googleSaJsonInput ? elements.googleSaJsonInput.value : '',
         default_local_dir: elements.localDirInput.value,
         default_yandex_dir: elements.yandexDirInput.value,

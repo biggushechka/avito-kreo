@@ -343,6 +343,28 @@
                     <small>Токен для загрузки картинок в облако и автоматической публикации ссылок.</small>
                 </div>
 
+                <div class="form-group">
+                    <label for="yandex-client-id-input">Идентификатор приложения Яндекс (Client ID):</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="yandex-client-id-input" placeholder="bb9d4b22f0884401a1aa1695def54e2d">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('yandex-client-id-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Используется для интеграции с API Яндекс.Диска.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="yandex-client-secret-input">Секретный ключ приложения Яндекс (Client Secret):</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="yandex-client-secret-input" placeholder="89d8a53154444685a37738431393cf40">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('yandex-client-secret-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Используется для интеграции с API Яндекс.Диска.</small>
+                </div>
+
 
                 <div class="form-group">
                     <label for="generation-delay-input">Задержка между генерациями картинок (в секундах):</label>

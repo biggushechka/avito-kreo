@@ -83,6 +83,8 @@ logger = logging.getLogger("generator_kreo")
 DEFAULT_CONFIG = {
     "gemini_api_key": "AIzaSyCFzzlKyJCCCZGYMOWqtYruENZirNdWTYc",
     "yandex_token": "y0__wgBENSx9gsYivVCIOae1uIX_YFoFD1DAoZgh5F5-Pp9r8Uy6Zs",
+    "yandex_client_id": "bb9d4b22f0884401a1aa1695def54e2d",
+    "yandex_client_secret": "89d8a53154444685a37738431393cf40",
     "google_service_account_json": "",
     "default_local_dir": os.path.join(DATA_DIR, "local_output"),
     "default_yandex_dir": "/Generator_Kreo",
@@ -133,6 +135,8 @@ def save_config(config: dict) -> None:
 class ConfigModel(BaseModel):
     gemini_api_key: str
     yandex_token: str
+    yandex_client_id: Optional[str] = ""
+    yandex_client_secret: Optional[str] = ""
     google_service_account_json: Optional[str] = ""
     default_local_dir: str
     default_yandex_dir: str
@@ -170,6 +174,10 @@ def get_config():
         masked_config["gemini_api_key"] = masked_config["gemini_api_key"][:4] + "..." + masked_config["gemini_api_key"][-4:]
     if masked_config.get("yandex_token"):
         masked_config["yandex_token"] = masked_config["yandex_token"][:4] + "..." + masked_config["yandex_token"][-4:]
+    if masked_config.get("yandex_client_id"):
+        masked_config["yandex_client_id"] = masked_config["yandex_client_id"][:4] + "..." + masked_config["yandex_client_id"][-4:]
+    if masked_config.get("yandex_client_secret"):
+        masked_config["yandex_client_secret"] = masked_config["yandex_client_secret"][:4] + "..." + masked_config["yandex_client_secret"][-4:]
     if masked_config.get("google_service_account_json"):
         # Display short helper text in UI to confirm it is configured
         masked_config["google_service_account_json"] = "{\n  \"type\": \"service_account\",\n  \"private_key\": \"*установлен (скрыт)*\"\n}"
@@ -187,6 +195,14 @@ def update_config(data: ConfigModel):
     yandex_token = data.yandex_token.strip()
     if "..." in yandex_token:
         yandex_token = current_config.get("yandex_token", "")
+
+    yandex_client_id = data.yandex_client_id.strip() if data.yandex_client_id else ""
+    if yandex_client_id and "..." in yandex_client_id:
+        yandex_client_id = current_config.get("yandex_client_id", "")
+
+    yandex_client_secret = data.yandex_client_secret.strip() if data.yandex_client_secret else ""
+    if yandex_client_secret and "..." in yandex_client_secret:
+        yandex_client_secret = current_config.get("yandex_client_secret", "")
         
     google_service_account_json = data.google_service_account_json.strip() if data.google_service_account_json else ""
     if google_service_account_json and "*установлен*" in google_service_account_json:
@@ -195,6 +211,8 @@ def update_config(data: ConfigModel):
     updated = {
         "gemini_api_key": gemini_api_key,
         "yandex_token": yandex_token,
+        "yandex_client_id": yandex_client_id,
+        "yandex_client_secret": yandex_client_secret,
         "google_service_account_json": google_service_account_json,
         "default_local_dir": data.default_local_dir.strip(),
         "default_yandex_dir": data.default_yandex_dir.strip(),
