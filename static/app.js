@@ -49,6 +49,7 @@ const elements = {
     // Modals
     settingsModal: document.getElementById('settings-modal'),
     geminiKeyInput: document.getElementById('gemini-key-input'),
+    geminiProxyInput: document.getElementById('gemini-proxy-input'),
     yandexTokenInput: document.getElementById('yandex-token-input'),
     yandexClientIdInput: document.getElementById('yandex-client-id-input'),
     yandexClientSecretInput: document.getElementById('yandex-client-secret-input'),
@@ -279,6 +280,9 @@ async function loadConfig() {
         
         // Populate inputs
         elements.geminiKeyInput.value = config.gemini_api_key || '';
+        if (elements.geminiProxyInput) {
+            elements.geminiProxyInput.value = config.gemini_proxy || '';
+        }
         elements.yandexTokenInput.value = config.yandex_token || '';
         if (elements.yandexClientIdInput) {
             elements.yandexClientIdInput.value = config.yandex_client_id || '';
@@ -316,6 +320,7 @@ async function loadConfig() {
 async function saveModalConfig() {
     const newConfig = {
         gemini_api_key: elements.geminiKeyInput.value,
+        gemini_proxy: elements.geminiProxyInput ? elements.geminiProxyInput.value : '',
         yandex_token: elements.yandexTokenInput.value,
         yandex_client_id: elements.yandexClientIdInput ? elements.yandexClientIdInput.value : '',
         yandex_client_secret: elements.yandexClientSecretInput ? elements.yandexClientSecretInput.value : '',
@@ -334,6 +339,7 @@ async function saveModalConfig() {
 async function saveSidebarConfig() {
     const newConfig = {
         gemini_api_key: elements.geminiKeyInput.value,
+        gemini_proxy: elements.geminiProxyInput ? elements.geminiProxyInput.value : '',
         yandex_token: elements.yandexTokenInput.value,
         yandex_client_id: elements.yandexClientIdInput ? elements.yandexClientIdInput.value : '',
         yandex_client_secret: elements.yandexClientSecretInput ? elements.yandexClientSecretInput.value : '',

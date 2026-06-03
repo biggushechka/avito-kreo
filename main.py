@@ -89,6 +89,7 @@ def load_system_defaults() -> dict:
         "yandex_token": "",
         "yandex_client_id": "",
         "yandex_client_secret": "",
+        "gemini_proxy": "",
         "google_service_account_json": "",
         "default_local_dir": os.path.join(DATA_DIR, "local_output"),
         "default_yandex_dir": "/Generator_Kreo",
@@ -157,6 +158,7 @@ class ConfigModel(BaseModel):
     yandex_token: str
     yandex_client_id: Optional[str] = ""
     yandex_client_secret: Optional[str] = ""
+    gemini_proxy: Optional[str] = ""
     google_service_account_json: Optional[str] = ""
     default_local_dir: str
     default_yandex_dir: str
@@ -233,6 +235,7 @@ def update_config(data: ConfigModel):
         "yandex_token": yandex_token,
         "yandex_client_id": yandex_client_id,
         "yandex_client_secret": yandex_client_secret,
+        "gemini_proxy": data.gemini_proxy.strip() if data.gemini_proxy else "",
         "google_service_account_json": google_service_account_json,
         "default_local_dir": data.default_local_dir.strip(),
         "default_yandex_dir": data.default_yandex_dir.strip(),
@@ -251,7 +254,7 @@ def check_apis():
     yandex_ok = False
     
     if config.get("gemini_api_key"):
-        gemini = GeminiHandler(config["gemini_api_key"])
+        gemini = GeminiHandler(config["gemini_api_key"], proxy=config.get("gemini_proxy"))
         gemini_ok = gemini.check_connection()
         
     if config.get("yandex_token"):
@@ -271,7 +274,7 @@ def analyze_ad(request: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="Gemini API Key is not set in configuration.")
     
     try:
-        handler = GeminiHandler(api_key)
+        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
         result = handler.generate_marketing_slots(
             global_context=config.get("global_context", ""),
             visual_style=config.get("visual_style", ""),
@@ -292,7 +295,7 @@ def generate_image(request: GenerateRequest):
     
     try:
         logger.info(f"Generating image with prompt: {request.prompt[:100]}...")
-        handler = GeminiHandler(api_key)
+        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
         image_bytes = handler.generate_image(prompt=request.prompt, aspect_ratio=request.aspect_ratio)
         
         # Save image temporarily
@@ -608,7 +611,7 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                 raw_text = f"Имя товара: {folder_name}"
                 
             add_log("Форматирование и извлечение данных через Gemini...")
-            gemini_handler = GeminiHandler(gemini_key)
+            gemini_handler = GeminiHandler(gemini_key, proxy=config.get("gemini_proxy"))
             
             # Prepare JSON template dynamically
             json_template = ", ".join([f'"{field}": "извлеченное значение {field}"' for field in field_names])

@@ -333,6 +333,12 @@
                 </div>
 
                 <div class="form-group">
+                    <label for="gemini-proxy-input">Прокси для Gemini API (необязательно):</label>
+                    <input type="text" id="gemini-proxy-input" placeholder="Например: http://user:pass@ip:port или socks5://ip:port">
+                    <small>Используйте внешний прокси (HTTP или SOCKS5), если сервер находится в заблокированном регионе (например, РФ).</small>
+                </div>
+
+                <div class="form-group">
                     <label for="yandex-token-input">Яндекс.Диск OAuth Токен:</label>
                     <div class="input-password-wrap">
                         <input type="password" id="yandex-token-input" placeholder="y0_...">
