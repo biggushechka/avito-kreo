@@ -7,7 +7,7 @@ import threading
 import time
 import shutil
 from typing import List, Dict, Any, Optional
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Request, Response, Depends, Cookie, UploadFile, File, Form, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,6 +27,29 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# In-memory session tracking for single-user authentication
+active_sessions = set()
+
+# HTTP Middleware to verify session tokens for all api routes (except login/logout)
+@app.middleware("http")
+async def check_session_middleware(request: Request, call_next):
+    path = request.url.path
+    # Allow static files, login/logout, and root page
+    if (
+        path.startswith("/static") or 
+        path.startswith("/temp_uploads") or 
+        path == "/api/login" or 
+        path == "/api/logout" or 
+        path == "/"
+    ):
+        return await call_next(request)
+        
+    session_token = request.cookies.get("session_token")
+    if not session_token or session_token not in active_sessions:
+        return JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+        
+    return await call_next(request)
 
 # Constants
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -345,13 +368,50 @@ if not os.path.exists(static_dir):
 app.mount("/static", StaticFiles(directory=static_dir), name="static")
 app.mount("/temp_uploads", StaticFiles(directory=TEMP_UPLOADS_DIR), name="temp_uploads")
 
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+@app.post("/api/login")
+def login(data: LoginRequest, response: Response):
+    # Username: 89284483992, Password: QL3EFfyLaW
+    if data.username.strip() == "89284483992" and data.password == "QL3EFfyLaW":
+        import uuid
+        token = str(uuid.uuid4())
+        active_sessions.add(token)
+        # Set httponly secure session cookie
+        response.set_cookie(
+            key="session_token",
+            value=token,
+            httponly=True,
+            samesite="lax",
+            max_age=7 * 24 * 3600
+        )
+        return {"status": "success", "message": "Logged in successfully."}
+    raise HTTPException(status_code=400, detail="Неверный логин или пароль")
+
+@app.post("/api/logout")
+def logout(response: Response, session_token: Optional[str] = Cookie(None)):
+    if session_token in active_sessions:
+        active_sessions.remove(session_token)
+    response.delete_cookie("session_token")
+    return {"status": "success", "message": "Logged out successfully."}
+
 @app.get("/")
-def read_root():
+def read_root(request: Request):
+    session_token = request.cookies.get("session_token")
+    if not session_token or session_token not in active_sessions:
+        login_file = os.path.join(static_dir, "login.html")
+        if os.path.exists(login_file):
+            with open(login_file, "r", encoding="utf-8") as f:
+                return HTMLResponse(content=f.read())
+        return HTMLResponse(content="<h1>Generator Kreo</h1><p>Login page not found.</p>")
+        
     index_file = os.path.join(static_dir, "index.html")
     if os.path.exists(index_file):
         with open(index_file, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
-    return HTMLResponse(content="<h1>Generator Kreo</h1><p>Static index.html not found yet. Please wait for initialization.</p>")
+    return HTMLResponse(content="<h1>Generator Kreo</h1><p>index.html not found.</p>")
 
 def open_browser():
     """Wait for server to start, then open standard web browser."""

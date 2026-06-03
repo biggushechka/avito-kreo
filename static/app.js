@@ -16,6 +16,7 @@ const elements = {
     statusGemini: document.getElementById('status-gemini'),
     statusYandex: document.getElementById('status-yandex'),
     btnOpenSettings: document.getElementById('btn-open-settings'),
+    btnLogout: document.getElementById('btn-logout'),
     
     // Sidebar
     globalContext: document.getElementById('global-context'),
@@ -92,6 +93,10 @@ function setupEventListeners() {
     elements.btnCloseSettings.addEventListener('click', () => closeModal(elements.settingsModal));
     elements.btnCancelSettings.addEventListener('click', () => closeModal(elements.settingsModal));
     elements.btnSaveSettings.addEventListener('click', saveModalConfig);
+    
+    if (elements.btnLogout) {
+        elements.btnLogout.addEventListener('click', handleLogout);
+    }
     
     // Sidebar Save
     elements.btnSaveSidebar.addEventListener('click', saveSidebarConfig);
@@ -1284,4 +1289,21 @@ function drawTextOverlay(imageSrc, bannerText) {
         };
         img.src = imageSrc;
     });
+}
+
+// Log out of the secure workspace session
+async function handleLogout() {
+    if (confirm('Вы действительно хотите выйти из системы?')) {
+        try {
+            const response = await fetch('/api/logout', { method: 'POST' });
+            if (response.ok) {
+                window.location.reload();
+            } else {
+                alert('Не удалось выйти. Пожалуйста, попробуйте еще раз.');
+            }
+        } catch (error) {
+            console.error('Logout error:', error);
+            alert('Ошибка сети при выходе.');
+        }
+    }
 }
