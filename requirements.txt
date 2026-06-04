@@ -7,4 +7,5 @@ python-multipart>=0.0.6
 jinja2>=3.1.2
 python-dotenv>=1.0.0
 python-docx>=0.8.11
+legacy-doc>=0.2.1
 

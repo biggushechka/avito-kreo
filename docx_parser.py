@@ -40,14 +40,25 @@ def parse_txt(file_path: str) -> str:
     except Exception as e:
         return f"[Error parsing text: {str(e)}]"
 
+def parse_doc(file_path: str) -> str:
+    """Parses a legacy binary .doc file using legacy-doc package."""
+    try:
+        from legacy_doc import extract_text
+        with open(file_path, "rb") as f:
+            result = extract_text(f.read())
+            return result.text or ""
+    except Exception as e:
+        logger.error(f"Error parsing legacy doc file {file_path}: {e}")
+        return f"[Error parsing legacy doc file: {str(e)}]"
+
 def extract_text_from_file(file_path: str) -> str:
-    """Detects file type and extracts text from docx or text files."""
+    """Detects file type and extracts text from docx, doc or text files."""
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".docx":
         return parse_docx(file_path)
     elif ext in [".txt", ".text"]:
         return parse_txt(file_path)
     elif ext == ".doc":
-        return "[Warning: Legacy binary .doc files are not supported. Please save as .docx or .txt]"
+        return parse_doc(file_path)
     else:
         return f"[Unsupported text file format: {ext}]"
