@@ -734,6 +734,19 @@ async function generateSingleImage(index) {
             `;
             
             statusText.innerHTML = '<i class="fa-solid fa-circle-check" style="color: var(--accent-cyan)"></i> Готов';
+            
+            // Automatically upload to Yandex.Disk if token is configured
+            if (appState.config.yandex_token) {
+                try {
+                    if (!appState.isGeneratingAll) {
+                        updateActivityStatus(`Автоматическая загрузка слота ${slot.slot_number} на Яндекс.Диск...`, 95);
+                    }
+                    await uploadSingleToYandex(index);
+                } catch (uploadErr) {
+                    console.error('Auto Yandex upload error:', uploadErr);
+                }
+            }
+            
             showNotification(`Изображение для слота ${slot.slot_number} готово!`, 'success');
             if (!appState.isGeneratingAll) {
                 updateActivityStatus(`Слот ${slot.slot_number} успешно сгенерирован!`, 100);
@@ -1340,19 +1353,37 @@ function drawTextOverlay(imageSrc, bannerText) {
                 const width = canvas.width;
                 const height = canvas.height;
                 
-                // Draw a dark premium slate bar at the bottom with 85% opacity
-                const bannerHeight = Math.round(height * 0.12);
-                const yPos = height - bannerHeight;
+                // Determine premium dimensions for the plaque (not full width to avoid Avito cropping)
+                const plaqueWidth = Math.round(width * 0.86);
+                const plaqueHeight = Math.round(height * 0.125);
+                const xPos = Math.round((width - plaqueWidth) / 2);
+                const yPos = height - plaqueHeight - Math.round(height * 0.05); // 5% bottom margin
+                const radius = Math.round(plaqueHeight * 0.18);
                 
-                ctx.fillStyle = 'rgba(11, 15, 25, 0.85)';
-                ctx.fillRect(0, yPos, width, bannerHeight);
+                // Helper to draw a rounded rectangle
+                ctx.beginPath();
+                ctx.moveTo(xPos + radius, yPos);
+                ctx.lineTo(xPos + plaqueWidth - radius, yPos);
+                ctx.quadraticCurveTo(xPos + plaqueWidth, yPos, xPos + plaqueWidth, yPos + radius);
+                ctx.lineTo(xPos + plaqueWidth, yPos + plaqueHeight - radius);
+                ctx.quadraticCurveTo(xPos + plaqueWidth, yPos + plaqueHeight, xPos + plaqueWidth - radius, yPos + plaqueHeight);
+                ctx.lineTo(xPos + radius, yPos + plaqueHeight);
+                ctx.quadraticCurveTo(xPos, yPos + plaqueHeight, xPos, yPos + plaqueHeight - radius);
+                ctx.lineTo(xPos, yPos + radius);
+                ctx.quadraticCurveTo(xPos, yPos, xPos + radius, yPos);
+                ctx.closePath();
                 
-                // Draw a cyan-purple glowing border gradient line at the top
-                const gradient = ctx.createLinearGradient(0, yPos, width, yPos);
-                gradient.addColorStop(0, '#00f0ff');
-                gradient.addColorStop(1, '#9f55ff');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, yPos, width, Math.max(4, Math.round(height * 0.004)));
+                // Fill background with dark premium slate at 88% opacity
+                ctx.fillStyle = 'rgba(11, 15, 25, 0.88)';
+                ctx.fill();
+                
+                // Stroke border with a beautiful glowing cyan-purple horizontal gradient
+                const borderGradient = ctx.createLinearGradient(xPos, yPos, xPos + plaqueWidth, yPos);
+                borderGradient.addColorStop(0, '#00f0ff');
+                borderGradient.addColorStop(1, '#9f55ff');
+                ctx.strokeStyle = borderGradient;
+                ctx.lineWidth = Math.max(3, Math.round(height * 0.004));
+                ctx.stroke();
                 
                 // Draw text in centered bold white
                 ctx.fillStyle = '#ffffff';
@@ -1360,11 +1391,20 @@ function drawTextOverlay(imageSrc, bannerText) {
                 ctx.textBaseline = 'middle';
                 
                 // Set premium responsive font
-                const fontSize = Math.round(bannerHeight * 0.35);
-                ctx.font = `bold ${fontSize}px "Plus Jakarta Sans", "Montserrat", "Arial", sans-serif`;
+                let currentFontSize = Math.round(plaqueHeight * 0.32);
+                ctx.font = `bold ${currentFontSize}px "Plus Jakarta Sans", "Montserrat", "Arial", sans-serif`;
                 
-                // Render text
-                ctx.fillText(bannerText, width / 2, yPos + (bannerHeight / 2) + Math.round(height * 0.002));
+                // Prevent text overflow by dynamically measuring and shrinking the font if needed
+                let textWidth = ctx.measureText(bannerText).width;
+                const maxTextWidth = plaqueWidth - Math.round(plaqueWidth * 0.08); // 8% inner padding
+                while (textWidth > maxTextWidth && currentFontSize > Math.round(plaqueHeight * 0.18)) {
+                    currentFontSize -= 1;
+                    ctx.font = `bold ${currentFontSize}px "Plus Jakarta Sans", "Montserrat", "Arial", sans-serif`;
+                    textWidth = ctx.measureText(bannerText).width;
+                }
+                
+                // Render text centered in the plaque
+                ctx.fillText(bannerText, width / 2, yPos + (plaqueHeight / 2));
             }
             
             resolve(canvas.toDataURL("image/jpeg", 0.95));

@@ -534,45 +534,140 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
             raise Exception(f"Папка {yandex_folder_path} не найдена на Яндекс.Диске.")
             
         subdirs = yandex_handler.list_subdirectories(yandex_folder_path)
-        add_log(f"Найдено подпапок товаров: {len(subdirs)}")
         
-        if not subdirs:
-            add_log("Обработка завершена: нет подпапок для сканирования.")
+        # Check if we have categories starting with '!'
+        categories = [d for d in subdirs if d.startswith("!")]
+        
+        products_to_process = []
+        image_extensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
+        
+        if categories:
+            add_log(f"Обнаружены папки категорий (начинаются с '!'): {categories}")
+            for cat_name in categories:
+                cat_path = f"{yandex_folder_path.rstrip('/')}/{cat_name}"
+                add_log(f"Сканирование категории {cat_name}...")
+                
+                # List files in category folder (for docx / pricing info)
+                cat_files = yandex_handler.list_files(cat_path)
+                docx_files = [f for f in cat_files if os.path.splitext(f["name"])[1].lower() in [".txt", ".docx", ".doc"]]
+                
+                # List subdirectories (the actual products/models)
+                model_dirs = yandex_handler.list_subdirectories(cat_path)
+                
+                # Download and extract text from all category docx files
+                cat_context_text = ""
+                for doc_file in docx_files:
+                    try:
+                        add_log(f"Чтение файла описания категории {cat_name}: {doc_file['name']}...")
+                        local_temp_path = os.path.join(TEMP_UPLOADS_DIR, f"temp_desc_{int(time.time())}_{doc_file['name']}")
+                        yandex_handler.download_file(doc_file["path"], local_temp_path)
+                        doc_text = docx_parser.extract_text_from_file(local_temp_path)
+                        cat_context_text += f"\n--- Файл {doc_file['name']} ---\n{doc_text}\n"
+                        if os.path.exists(local_temp_path):
+                            os.remove(local_temp_path)
+                    except Exception as doc_err:
+                        add_log(f"Ошибка чтения файла {doc_file['name']}: {doc_err}")
+                
+                if model_dirs:
+                    add_log(f"В категории {cat_name} найдено моделей: {len(model_dirs)}")
+                    for model_name in model_dirs:
+                        model_path = f"{cat_path}/{model_name}"
+                        
+                        # List files in model folder to get images (including 2-level subdirs)
+                        files_in_model = yandex_handler.list_files(model_path)
+                        try:
+                            model_subdirs = yandex_handler.list_subdirectories(model_path)
+                            for sub in model_subdirs:
+                                sub_path = f"{model_path}/{sub}"
+                                try:
+                                    sub_files = yandex_handler.list_files(sub_path)
+                                    files_in_model.extend(sub_files)
+                                except Exception as sub_err:
+                                    add_log(f"Предупреждение: Не удалось получить файлы из подпапки {sub}: {sub_err}")
+                        except Exception as subdirs_err:
+                            add_log(f"Предупреждение: Не удалось просканировать подпапки для {model_name}: {subdirs_err}")
+                            
+                        model_images = [f for f in files_in_model if os.path.splitext(f["name"])[1].lower() in image_extensions]
+                        
+                        products_to_process.append({
+                            "name": model_name,
+                            "folder_path": model_path,
+                            "context_text": cat_context_text,
+                            "category": cat_name.lstrip("!").strip(),
+                            "image_files": model_images
+                        })
+                else:
+                    # If category has no model folders, treat category folder itself as a product (fallback)
+                    add_log(f"В категории {cat_name} не найдено подпапок моделей. Обрабатываем её как один товар.")
+                    
+                    # List files directly in category folder to get images
+                    cat_images = [f for f in cat_files if os.path.splitext(f["name"])[1].lower() in image_extensions]
+                    
+                    products_to_process.append({
+                        "name": cat_name,
+                        "folder_path": cat_path,
+                        "context_text": cat_context_text,
+                        "category": cat_name.lstrip("!").strip(),
+                        "image_files": cat_images
+                    })
+        else:
+            # Traditional behavior: each subdirectory is a product
+            add_log(f"Папки категорий с '!' не найдены. Обрабатываем подпапки как товары.")
+            for folder_name in subdirs:
+                folder_path = f"{yandex_folder_path.rstrip('/')}/{folder_name}"
+                files = yandex_handler.list_files(folder_path)
+                docx_files = [f for f in files if os.path.splitext(f["name"])[1].lower() in [".txt", ".docx", ".doc"]]
+                
+                # Also list subdirectories inside traditional product folders
+                try:
+                    folder_subdirs = yandex_handler.list_subdirectories(folder_path)
+                    for sub in folder_subdirs:
+                        sub_path = f"{folder_path}/{sub}"
+                        try:
+                            sub_files = yandex_handler.list_files(sub_path)
+                            files.extend(sub_files)
+                        except Exception as sub_err:
+                            add_log(f"Предупреждение: Не удалось получить файлы из подпапки {sub}: {sub_err}")
+                except Exception as subdirs_err:
+                    pass
+                     
+                model_images = [f for f in files if os.path.splitext(f["name"])[1].lower() in image_extensions]
+                
+                # Extract text from docx
+                context_text = ""
+                for doc_file in docx_files:
+                    try:
+                        local_temp_path = os.path.join(TEMP_UPLOADS_DIR, f"temp_desc_{int(time.time())}_{doc_file['name']}")
+                        yandex_handler.download_file(doc_file["path"], local_temp_path)
+                        doc_text = docx_parser.extract_text_from_file(local_temp_path)
+                        context_text += f"\n--- {doc_file['name']} ---\n{doc_text}\n"
+                        if os.path.exists(local_temp_path):
+                            os.remove(local_temp_path)
+                    except Exception as doc_err:
+                        add_log(f"Ошибка чтения {doc_file['name']}: {doc_err}")
+                        
+                products_to_process.append({
+                    "name": folder_name,
+                    "folder_path": folder_path,
+                    "context_text": context_text,
+                    "category": "",
+                    "image_files": model_images
+                })
+                
+        if not products_to_process:
+            add_log("Обработка завершена: нет товаров для сканирования.")
             table_generator_status["progress"] = 100.0
             return
             
-        total_folders = len(subdirs)
+        total_products = len(products_to_process)
+        add_log(f"Всего товаров для обработки ИИ: {total_products}")
         
-        # Phase 1: Scan folders to count images and find max_photos
-        add_log("Предварительный анализ количества изображений в папках...")
-        folder_contents = []
+        # Calculate max_photos across all products
         max_photos = 0
-        
-        for folder_idx, folder_name in enumerate(subdirs):
-            folder_full_path = f"{yandex_folder_path.rstrip('/')}/{folder_name}"
-            files = yandex_handler.list_files(folder_full_path)
-            
-            image_extensions = [".jpg", ".jpeg", ".png", ".webp", ".bmp"]
-            image_files = []
-            text_files = []
-            
-            for file_info in files:
-                name = file_info["name"]
-                ext = os.path.splitext(name)[1].lower()
-                if ext in image_extensions:
-                    image_files.append(file_info)
-                elif ext in [".txt", ".docx", ".doc"]:
-                    text_files.append(file_info)
-                    
-            folder_contents.append({
-                "name": folder_name,
-                "full_path": folder_full_path,
-                "image_files": image_files,
-                "text_files": text_files
-            })
-            
-            if len(image_files) > max_photos:
-                max_photos = len(image_files)
+        for p in products_to_process:
+            p_photos_count = len(p["image_files"])
+            if p_photos_count > max_photos:
+                max_photos = p_photos_count
                 
         add_log(f"Максимальное количество фото в одном товаре: {max_photos}")
         
@@ -584,84 +679,83 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
         tsv_lines = [ "\t".join(headers) ]
         table_generator_status["result_tsv"] = tsv_lines[0] + "\n"
         
-        # Phase 2: Process each folder
-        for folder_idx, content in enumerate(folder_contents):
-            folder_name = content["name"]
-            table_generator_status["current_folder"] = folder_name
-            current_progress = round((folder_idx / total_folders) * 100, 1)
+        # Phase 2: Process each product
+        for idx, item in enumerate(products_to_process):
+            product_name = item["name"]
+            table_generator_status["current_folder"] = product_name
+            current_progress = round((idx / total_products) * 100, 1)
             table_generator_status["progress"] = current_progress
             
-            add_log(f"=== [{folder_idx + 1}/{total_folders}] Извлечение данных: {folder_name} ===")
+            add_log(f"=== [{idx + 1}/{total_products}] Извлечение данных: {product_name} ===")
             
-            image_files = content["image_files"]
-            text_files = content["text_files"]
+            # Format and extract data via Gemini
+            raw_text = item["context_text"]
             
-            raw_text = ""
-            if text_files:
-                txt_file = text_files[0]
-                add_log(f"Чтение файла описания: {txt_file['name']}...")
-                local_temp_path = os.path.join(TEMP_UPLOADS_DIR, f"temp_desc_{int(time.time())}{os.path.splitext(txt_file['name'])[1]}")
-                yandex_handler.download_file(txt_file["path"], local_temp_path)
-                raw_text = docx_parser.extract_text_from_file(local_temp_path)
-                if os.path.exists(local_temp_path):
-                    os.remove(local_temp_path)
-                add_log(f"Размер текста: {len(raw_text)} символов.")
-            else:
-                add_log(f"Файл описания не найден. Используем имя папки '{folder_name}'.")
-                raw_text = f"Имя товара: {folder_name}"
-                
-            add_log("Форматирование и извлечение данных через Gemini...")
-            gemini_handler = GeminiHandler(gemini_key, proxy=config.get("gemini_proxy"))
-            
-            # Prepare JSON template dynamically
-            json_template = ", ".join([f'"{field}": "извлеченное значение {field}"' for field in field_names])
-            
-            product_info = {field: "" for field in field_names}
-            
-            try:
-                gemini_prompt = f"""
-                Тебе дан текст описания товара. Извлеки из него информацию по следующим полям: {', '.join(field_names)}.
-                
-                Верни ответ СТРОГО в формате JSON с указанными ключами (все значения должны быть строками):
-                {{
-                   {json_template}
-                }}
-                
-                Правила:
-                1. Ключи в JSON должны в точности соответствовать запрашиваемым полям.
-                2. Если информация для какого-то поля отсутствует в тексте, верни для него пустую строку "".
-                3. Не добавляй никаких дополнительных полей, кроме запрашиваемых.
-                
-                Пользовательские требования к значениям:
-                {prompt_instruction or 'Извлеки данные максимально точно.'}
-                
-                Текст описания товара:
-                {raw_text}
-                """
-                
-                gemini_res_str = gemini_handler.generate_text(gemini_prompt)
-                
-                clean_json = gemini_res_str.strip()
-                if clean_json.startswith("```json"):
-                    clean_json = clean_json[7:]
-                if clean_json.endswith("```"):
-                    clean_json = clean_json[:-3]
-                clean_json = clean_json.strip()
-                
-                parsed_json = json.loads(clean_json)
-                for field in field_names:
-                    product_info[field] = parsed_json.get(field, "") or ""
-                add_log(f"Успешный разбор полей ИИ!")
-            except Exception as gemini_err:
-                add_log(f"Предупреждение: Ошибка анализа Gemini ({gemini_err}). Используем fallback.")
+            if not raw_text.strip():
+                add_log(f"Предупреждение: Описание товара пусто для {product_name}. Используем fallback.")
+                product_info = {field: "" for field in field_names}
                 if field_names:
-                    product_info[field_names[0]] = folder_name
-                if len(field_names) > 1:
-                    product_info[field_names[1]] = raw_text
+                    product_info[field_names[0]] = product_name
+            else:
+                add_log("Форматирование и извлечение данных через Gemini...")
+                gemini_handler = GeminiHandler(gemini_key, proxy=config.get("gemini_proxy"))
+                
+                # Prepare JSON template dynamically
+                json_template = ", ".join([f'"{field}": "извлеченное значение {field}"' for field in field_names])
+                product_info = {field: "" for field in field_names}
+                
+                try:
+                    category_part = f' из категории "{item["category"]}"' if item["category"] else ""
+                    gemini_prompt = f"""
+                    Тебе дан текст описания и стоимости различных проектов/моделей{category_part}.
+                    Твоя задача — найти в этом тексте информацию, относящуюся КОНКРЕТНО к модели под названием "{product_name}".
                     
+                    Извлеки из текста информацию по следующим полям: {', '.join(field_names)}.
+                    
+                    Верни ответ СТРОГО в формате JSON с указанными ключами (все значения должны быть строками):
+                    {{
+                       {json_template}
+                    }}
+                    
+                    Правила:
+                    1. Ключи в JSON должны в точности соответствовать запрашиваемым полям.
+                    2. Ищи информацию именно для модели "{product_name}". Если для какого-то поля информация отсутствует, верни пустую строку "".
+                    3. Не добавляй никаких дополнительных полей, кроме запрашиваемых.
+                    4. Название модели может упоминаться в тексте сокращенно, частично или с вариациями в пробелах/символах (например, "МБ 11" или "сауна 2.4х4.9" для папки "МБ 11 сауна (2.4х4.9)"). Используй интеллектуальный поиск для сопоставления.
+                    
+                    Пользовательские требования к значениям:
+                    {prompt_instruction or 'Извлеки данные максимально точно.'}
+                    
+                    Текст описания и цен моделей:
+                    {raw_text}
+                    """
+                    
+                    gemini_res_str = gemini_handler.generate_text(gemini_prompt)
+                    
+                    clean_json = gemini_res_str.strip()
+                    if clean_json.startswith("```json"):
+                        clean_json = clean_json[7:]
+                    if clean_json.endswith("```"):
+                        clean_json = clean_json[:-3]
+                    clean_json = clean_json.strip()
+                    
+                    parsed_json = json.loads(clean_json)
+                    for field in field_names:
+                        product_info[field] = parsed_json.get(field, "") or ""
+                    add_log(f"Успешный разбор полей ИИ!")
+                except Exception as gemini_err:
+                    add_log(f"Предупреждение: Ошибка анализа Gemini ({gemini_err}). Используем fallback.")
+                    product_info = {field: "" for field in field_names}
+                    if field_names:
+                        product_info[field_names[0]] = product_name
+                    if len(field_names) > 1:
+                        product_info[field_names[1]] = raw_text[:200]
+                        
+            # Publish photos
             photo_urls = []
+            image_files = item["image_files"]
             if image_files:
-                add_log(f"Публикация {len(image_files)} фото на Яндекс.Диске...")
+                add_log(f"Публикация {len(image_files)} фото для товара {product_name}...")
                 for img_info in image_files:
                     try:
                         pub_url = yandex_handler.publish_and_get_link(img_info["path"])
