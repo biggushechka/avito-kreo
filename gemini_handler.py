@@ -65,13 +65,13 @@ class GeminiHandler:
 
 
     def check_connection(self) -> bool:
-        """Verify the API key by making a simple request to list models or generate a tiny text."""
+        """Verify the API key by making a fast lightweight request."""
         payload = {
             "contents": [{"parts": [{"text": "ping"}]}],
-            "generationConfig": {"maxOutputTokens": 5}
+            "generationConfig": {"maxOutputTokens": 100}
         }
         try:
-            response = self._make_text_request_with_fallback(payload, timeout=10)
+            response = self._make_text_request_with_fallback(payload, timeout=6)
             return response.status_code == 200
         except Exception:
             return False
