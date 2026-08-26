@@ -79,16 +79,15 @@ logger = logging.getLogger("generator_kreo")
 SYSTEM_DEFAULTS_FILE = os.path.join(DATA_DIR, "system_defaults.json")
 
 def load_system_defaults() -> dict:
-    # Baseline fallback defaults with empty credentials in git
     defaults = {
-        "gemini_api_key": "",
-        "yandex_token": "",
-        "yandex_client_id": "",
-        "yandex_client_secret": "",
-        "gemini_proxy": "",
+        "gemini_api_key": os.environ.get("GEMINI_API_KEY", ""),
+        "yandex_token": os.environ.get("YANDEX_TOKEN", ""),
+        "yandex_client_id": os.environ.get("YANDEX_CLIENT_ID", "bb9d4b22f0884401a1aa1695def54e2d"),
+        "yandex_client_secret": os.environ.get("YANDEX_CLIENT_SECRET", "89d8a53154444685a37738431393cf40"),
+        "gemini_proxy": os.environ.get("GEMINI_PROXY", ""),
         "google_service_account_json": "",
         "default_local_dir": os.path.join(DATA_DIR, "local_output"),
-        "default_yandex_dir": "/Generator_Kreo",
+        "default_yandex_dir": "/Markoos/Penkof",
         "global_context": (
             "Продукт: Современные бани-бочки формы «Квадро» (закругленный квадрат) двух размеров: 2х2 метра и 2х4 метра под ключ.\n"
             "УТП:\n"
