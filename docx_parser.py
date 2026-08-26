@@ -1,0 +1,78 @@
+import os
+import logging
+
+logger = logging.getLogger("generator_kreo")
+
+try:
+    import docx
+except ImportError:
+    docx = None
+    logger.warning("python-docx is not installed. Word docx files cannot be parsed.")
+
+def parse_docx(file_path: str) -> str:
+    """Parses a .docx file and returns its text content, including paragraphs and tables."""
+    if not docx:
+        return "[Error: python-docx library is not installed on this system]"
+    
+    try:
+        doc = docx.Document(file_path)
+        full_text = []
+        for para in doc.paragraphs:
+            if para.text.strip():
+                full_text.append(para.text)
+                
+        # Extract tables (price lists are frequently stored in tables)
+        for table in doc.tables:
+            for row in table.rows:
+                row_cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
+                # remove consecutive duplicates in merged cells
+                seen = []
+                for c in row_cells:
+                    if not seen or c != seen[-1]:
+                        seen.append(c)
+                if seen:
+                    full_text.append(" | ".join(seen))
+                    
+        return "\n".join(full_text)
+    except Exception as e:
+        logger.error(f"Error parsing docx file {file_path}: {e}")
+        return f"[Error parsing docx: {str(e)}]"
+
+def parse_txt(file_path: str) -> str:
+    """Parses a plain text file, handling different encodings."""
+    encodings = ["utf-8", "windows-1251", "cp1252", "latin-1"]
+    for encoding in encodings:
+        try:
+            with open(file_path, "r", encoding=encoding) as f:
+                return f.read()
+        except UnicodeDecodeError:
+            continue
+    # Fallback to binary representation or error
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            return f.read()
+    except Exception as e:
+        return f"[Error parsing text: {str(e)}]"
+
+def parse_doc(file_path: str) -> str:
+    """Parses a legacy binary .doc file using legacy-doc package."""
+    try:
+        from legacy_doc import extract_text
+        with open(file_path, "rb") as f:
+            result = extract_text(f.read())
+            return result.text or ""
+    except Exception as e:
+        logger.error(f"Error parsing legacy doc file {file_path}: {e}")
+        return f"[Error parsing legacy doc file: {str(e)}]"
+
+def extract_text_from_file(file_path: str) -> str:
+    """Detects file type and extracts text from docx, doc or text files."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".docx":
+        return parse_docx(file_path)
+    elif ext in [".txt", ".text"]:
+        return parse_txt(file_path)
+    elif ext == ".doc":
+        return parse_doc(file_path)
+    else:
+        return f"[Unsupported text file format: {ext}]"

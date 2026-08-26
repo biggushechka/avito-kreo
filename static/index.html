@@ -1,0 +1,544 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Generator Kreo — Умный генератор рекламных кампаний</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&display=swap" rel="stylesheet">
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="logo-area">
+                <i class="fa-solid fa-wand-magic-sparkles logo-icon"></i>
+                <div class="logo-text">
+                    <h1>GENERATOR <span>KREO</span></h1>
+                    <p>9-слотовая маркетинговая автогенерация</p>
+                </div>
+            </div>
+            
+            <!-- Navigation Workspace Toggle Tabs -->
+            <div class="app-navigation" style="display: flex; gap: 0.5rem; margin-left: 2.5rem; margin-right: auto;">
+                <button class="btn-tab active" id="tab-creative" data-tab="creative">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i> Креативы
+                </button>
+                <button class="btn-tab" id="tab-uniqualize" data-tab="uniqualize">
+                    <i class="fa-solid fa-images"></i> Уникализация фото
+                </button>
+                <button class="btn-tab" id="tab-table" data-tab="table">
+                    <i class="fa-solid fa-table"></i> Генератор таблицы
+                </button>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-badge" id="status-gemini">
+                    <span class="indicator"></span>
+                    <i class="fa-brands fa-google"></i> Gemini API: <span class="text">Проверка...</span>
+                </div>
+                <div class="status-badge" id="status-yandex">
+                    <span class="indicator"></span>
+                    <i class="fa-brands fa-yandex"></i> Яндекс.Диск: <span class="text">Проверка...</span>
+                </div>
+                <button class="btn btn-secondary btn-icon" id="btn-open-settings" title="Настройки API">
+                    <i class="fa-solid fa-cog"></i>
+                </button>
+                <button class="btn btn-secondary btn-icon" id="btn-logout" title="Выйти из системы" style="color: var(--accent-red);">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                </button>
+            </div>
+        </header>
+
+
+        <!-- Main Layout -->
+        <main class="app-content">
+            <!-- Sidebar Panel: Global settings & Setup -->
+            <aside class="sidebar-panel">
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-bullseye"></i>
+                        <h3>Глобальный маркетинг</h3>
+                    </div>
+                    <div class="form-group">
+                        <label for="global-context">Маркетинговый контекст (продукт, УТП, ЦА):</label>
+                        <textarea id="global-context" rows="6" placeholder="Опишите общие преимущества бань, целевую аудиторию, ценовые рамки, особенности монтажа..."></textarea>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-palette"></i>
+                        <h3>Визуальный стиль</h3>
+                    </div>
+                    <div class="form-group">
+                        <label for="visual-style">Промпт-гайд стиля (атмосфера, свет, ракурс):</label>
+                        <textarea id="visual-style" rows="5" placeholder="Опишите, как должны выглядеть картинки: теплый свет, фотореализм, дерево, пар, отсутствие текста и водяных знаков..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>Стилевые референсы (изображения):</label>
+                        <div class="upload-zone" id="ref-upload-zone">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                            <p>Перетащите файлы сюда или кликните для загрузки</p>
+                            <input type="file" id="ref-file-input" multiple accept="image/*" style="display: none;">
+                        </div>
+                        <div class="reference-previews" id="ref-previews-container"></div>
+                    </div>
+                </div>
+
+                <div class="sidebar-section">
+                    <div class="section-header">
+                        <i class="fa-solid fa-folder-open"></i>
+                        <h3>Настройки путей сохранения</h3>
+                    </div>
+                    <div class="form-group">
+                        <label for="local-dir-input">Локальная папка на ПК для сохранения:</label>
+                        <input type="text" id="local-dir-input" placeholder="D:\Бани_Креативы">
+                        <small>Сюда будут автоматически сохранены итоговые файлы</small>
+                    </div>
+                    <div class="form-group">
+                        <label for="yandex-dir-input">Папка на Яндекс.Диске:</label>
+                        <input type="text" id="yandex-dir-input" placeholder="/Генератор_Бани">
+                        <small>Корневая папка на Диске для рекламных кампаний</small>
+                    </div>
+                    <button class="btn btn-primary w-full" id="btn-save-sidebar-configs">
+                        <i class="fa-solid fa-floppy-disk"></i> Сохранить настройки кампании
+                    </button>
+                    <div class="project-actions-row" style="display: flex; gap: 0.5rem; margin-top: 0.75rem;">
+                        <button class="btn btn-secondary flex-1 btn-icon-text" id="btn-export-project" title="Сохранить настройки проекта в файл">
+                            <i class="fa-solid fa-file-export"></i> Экспорт
+                        </button>
+                        <button class="btn btn-secondary flex-1 btn-icon-text" id="btn-import-project" title="Загрузить настройки проекта из файла">
+                            <i class="fa-solid fa-file-import"></i> Импорт
+                        </button>
+                        <input type="file" id="project-file-input" accept=".json" style="display: none;">
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Workspace: Workspace containing generator actions & slot output -->
+            <section class="workspace-panel">
+                <!-- Paths Configuration Bar -->
+                <div class="workspace-paths-bar">
+                    <div class="path-input-group">
+                        <label for="yandex-dir-input-ws"><i class="fa-brands fa-yandex"></i> Папка на Яндекс.Диске:</label>
+                        <input type="text" id="yandex-dir-input-ws" placeholder="/Generator_Kreo">
+                    </div>
+                    <div class="path-input-group">
+                        <label for="local-dir-input-ws"><i class="fa-solid fa-folder-open"></i> Локальная папка на ПК:</label>
+                        <input type="text" id="local-dir-input-ws" placeholder="D:\Бани_Креативы">
+                    </div>
+                </div>
+
+                <!-- Ad Input Bar -->
+                <div class="ad-generator-bar">
+                    <div class="input-wrapper">
+                        <i class="fa-solid fa-pen-nib input-icon"></i>
+                        <input type="text" id="ad-input" placeholder="Введите параметры конкретного объявления (например: Квадро-баня 2х2, каркасная, 500 000 руб., печь в подарок, доставка за 1 день)...">
+                    </div>
+                    <button class="btn btn-glowing btn-lg" id="btn-run-analysis">
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Разложить на 9 слотов
+                    </button>
+                    <button class="btn btn-pack btn-lg" id="btn-gen-5-packs" title="Сгенерировать 5 пачек (5×9 картинок)">
+                        <i class="fa-solid fa-layer-group"></i> 5 пачек
+                    </button>
+                    <button class="btn btn-pack btn-lg" id="btn-gen-10-packs" title="Сгенерировать 10 пачек (10×9 картинок)">
+                        <i class="fa-solid fa-layer-group"></i> 10 пачек
+                    </button>
+                </div>
+
+                <!-- Real-time Activity Progress Bar -->
+                <div class="activity-status-bar" id="activity-status-bar" style="display: none;">
+                    <div class="activity-info">
+                        <i class="fa-solid fa-circle-notch fa-spin activity-loader"></i>
+                        <span id="activity-status-text">Идет генерация пакета картинок...</span>
+                    </div>
+                    <div class="activity-progress-container">
+                        <div class="activity-progress-bar" id="activity-progress-bar-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- Packs Generation Progress Bar -->
+                <div class="packs-status-bar" id="packs-status-bar" style="display: none;">
+                    <div class="packs-status-header">
+                        <div class="packs-status-info">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i>
+                            <span id="packs-status-text">Запуск генерации пачек...</span>
+                        </div>
+                        <div class="packs-mini-progress">
+                            <span id="packs-progress-label" class="packs-progress-label">0 / 0 пачек</span>
+                        </div>
+                    </div>
+                    <div class="packs-progress-track">
+                        <div class="packs-progress-fill" id="packs-progress-fill" style="width: 0%;"></div>
+                    </div>
+                    <div class="packs-slot-track">
+                        <div class="packs-slot-fill" id="packs-slot-fill" style="width: 0%;"></div>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div class="workspace-empty-state" id="workspace-empty">
+                    <div class="empty-icon-wrap">
+                        <i class="fa-solid fa-folder-plus"></i>
+                    </div>
+                    <h2>Готов к генерации креативов</h2>
+                    <p>Настройте глобальный контекст слева, введите параметры конкретного рекламного объявления в поле выше и нажмите кнопку «Разложить на 9 слотов». Система автоматически сгенерирует маркетинговую схему, тексты для баннеров, промпты и картинки.</p>
+                </div>
+
+                <!-- Active Generator View -->
+                <div class="generator-view" id="generator-workspace" style="display: none;">
+                    <div class="workspace-header-actions">
+                        <div class="ad-summary-title">
+                            <span class="badge">Объявление</span>
+                            <h2 id="ad-summary-text">Загрузка объявления...</h2>
+                        </div>
+                        <div class="bulk-actions">
+                            <button class="btn btn-secondary btn-icon-text" id="btn-generate-all">
+                                <i class="fa-solid fa-images"></i> Генерировать все картинки
+                            </button>
+                            <button class="btn btn-secondary btn-icon-text" id="btn-upload-all">
+                                <i class="fa-solid fa-cloud-arrow-up"></i> Все на Яндекс.Диск
+                            </button>
+                            <button class="btn btn-secondary btn-icon-text" id="btn-copy-all-links" style="display: none;">
+                                <i class="fa-solid fa-copy"></i> Скопировать ссылки на ЯД
+                            </button>
+                            <button class="btn btn-success btn-icon-text" id="btn-download-all-zip" style="display: none;">
+                                <i class="fa-solid fa-file-zipper"></i> Скачать ZIP-архив
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Excel Export Helper Box -->
+                    <div class="excel-export-panel" id="excel-export-panel" style="display: none;">
+                        <div class="excel-panel-header">
+                            <i class="fa-solid fa-file-excel excel-icon"></i>
+                            <h4>Строка импорта для Excel (1 строка)</h4>
+                        </div>
+                        <div class="excel-panel-body">
+                            <div class="excel-inputs-row">
+                                <div class="excel-field-group">
+                                    <label>Название товара (Столбец А)</label>
+                                    <input type="text" id="excel-product-name" placeholder="Название товара...">
+                                </div>
+                                <div class="excel-field-group">
+                                    <label>Параметры (Столбец B)</label>
+                                    <input type="text" id="excel-parameters" placeholder="Характеристики...">
+                                </div>
+                                <div class="excel-field-group flex-2">
+                                    <label>Готовая строка для Excel (Столбцы A, B, C)</label>
+                                    <div class="excel-copy-input-wrap">
+                                        <textarea id="excel-row-output" readonly rows="1" placeholder="Здесь появится строка для копирования в Excel..."></textarea>
+                                        <button class="btn btn-success" id="btn-copy-excel-row" title="Скопировать строку для вставки в Excel">
+                                            <i class="fa-solid fa-copy"></i> Скопировать
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Slots Grid (9 items) -->
+                    <div class="slots-grid" id="slots-container">
+                        <!-- 9 slots dynamically inserted here -->
+                    </div>
+                </div>
+
+                <!-- Packs Results Accordion -->
+                <div class="packs-results-section" id="packs-results-section" style="display: none;">
+                    <div class="packs-results-header">
+                        <div class="packs-results-title">
+                            <i class="fa-solid fa-layer-group"></i>
+                            <h3 id="packs-results-heading">Пачки креативов</h3>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-success btn-icon-text" id="btn-copy-all-pack-links" title="Скопировать все пачки для Excel (каждая пачка в одну ячейку)">
+                                <i class="fa-solid fa-copy"></i> Скопировать все ссылки
+                            </button>
+                            <button class="btn btn-secondary btn-icon-text" id="btn-clear-packs" title="Очистить результаты пачек">
+                                <i class="fa-solid fa-trash"></i> Очистить
+                            </button>
+                        </div>
+                    </div>
+                    <div class="packs-accordion" id="packs-accordion">
+                        <!-- Pack items dynamically inserted here -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Table Generator Workspace -->
+            <section class="workspace-panel full-width-panel" id="table-generator-panel" style="display: none; flex: 1; flex-direction: column; gap: 1.5rem;">
+                <div class="workspace-paths-bar">
+                    <div class="logo-area">
+                        <i class="fa-solid fa-table logo-icon" style="font-size: 1.8rem;"></i>
+                        <div class="logo-text">
+                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0;">Автоматическая сборка таблицы по Yandex.Disk</h2>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Парсинг локальных папок на Яндекс.Диске, структурирование колонок через ИИ и генерация общей таблицы</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tg-setup-card" style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                            <label for="tg-yandex-folder" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-brands fa-yandex"></i> Папка на Яндекс.Диске с товарами:</label>
+                            <input type="text" id="tg-yandex-folder" placeholder="Например: /Товары" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Путь к папке, в которой лежат подпапки с товарами (название папки = название модели).</small>
+                        </div>
+                        
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem; flex-grow: 2;">
+                            <label for="tg-prompt-fields" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-list-check"></i> Поля (колонки) таблицы через запятую:</label>
+                            <input type="text" id="tg-prompt-fields" value="Название, Цена, Описание, Параметры" placeholder="Например: Название, Цена, Описание, Комплектация, Длина" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Задайте любые нужные колонки. Ссылки на фото добавятся в конец автоматически.</small>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                        <label for="tg-prompt-instruction" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-brain"></i> Дополнительные инструкции для ИИ (Gemini) по форматированию полей:</label>
+                        <textarea id="tg-prompt-instruction" rows="2" placeholder="Например: Сделай описание структурированным с УТП, укажи комплектацию, напиши продающий заголовок для Авито..." style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem; resize: vertical;"></textarea>
+                        <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Специфические инструкции по тому, как форматировать значения в ячейках таблицы.</small>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; border-top: 1px solid var(--border-color); padding-top: 1.25rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                        <button class="btn btn-glowing btn-lg" id="btn-tg-start" style="padding: 0.85rem 2rem;">
+                            <i class="fa-solid fa-play"></i> Запустить сканирование и сборку
+                        </button>
+                        <button class="btn btn-icon-text" id="btn-tg-stop" style="display: none; padding: 0.85rem 2rem; background-color: #ff3333; color: white; border-radius: 8px; font-weight: 700; cursor: pointer; border: none;">
+                            <i class="fa-solid fa-stop"></i> Остановить сборку
+                        </button>
+                        
+                        <div id="tg-progress-info" style="display: none; flex: 1; display: flex; align-items: center; gap: 1rem; min-width: 280px;">
+                            <span style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500; min-width: 150px; max-width: 250px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" id="tg-current-folder-text"></span>
+                            <div class="activity-progress-container" style="flex: 1; height: 10px; margin-bottom: 0; background: rgba(31, 46, 84, 0.4); border-radius: 5px; overflow: hidden;">
+                                <div class="activity-progress-bar" id="tg-progress-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--accent-cyan), var(--accent-purple)); transition: width 0.4s ease;"></div>
+                            </div>
+                            <span class="badge" id="tg-progress-percent" style="min-width: 48px; text-align: center; font-weight: 700; color: var(--accent-cyan);">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Compiled TSV Output Panel -->
+                <div class="tsv-output-card" id="tg-output-card" style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; gap: 0.75rem; box-shadow: var(--shadow-lg);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fa-solid fa-clipboard-list" style="font-size: 1.2rem; color: var(--accent-green);"></i>
+                            <h4 style="font-size: 0.9rem; font-weight: 700; text-transform: uppercase; color: var(--text-primary); margin: 0; letter-spacing: 0.05em;">Результат для вставки в Google Таблицу / Excel</h4>
+                        </div>
+                        <button class="btn btn-success" id="btn-tg-copy-tsv" style="padding: 0.45rem 1.25rem; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.5rem; cursor: pointer; border-radius: 6px; border: none; font-weight: 600;">
+                            <i class="fa-solid fa-copy"></i> Скопировать всю таблицу
+                        </button>
+                    </div>
+                    <textarea id="tg-result-output" readonly rows="6" placeholder="Здесь появится сгенерированная таблица в формате TSV (одна строка - один товар). Вы сможете скопировать её одним кликом и вставить (Ctrl+V) в первую ячейку Excel или Google Sheets..." style="width: 100%; font-family: 'Consolas', 'Monaco', monospace; background: var(--bg-main); border: 1px solid var(--border-color); color: var(--text-primary); padding: 0.75rem; border-radius: 6px; resize: vertical; font-size: 0.8rem; height: 180px;"></textarea>
+                    <small style="color: var(--text-muted); font-size: 0.75rem;">* Примечание: При копировании таблицы и её вставке (Ctrl+V) в Excel/Google Таблицы, данные автоматически разобьются по ячейкам.</small>
+                </div>
+                
+                <!-- Terminal Console Logs Panel -->
+                <div class="console-logs-card" style="background: #070B13; border: 1px solid var(--border-color); border-radius: 12px; display: flex; flex-direction: column; overflow: hidden; height: 350px; box-shadow: var(--shadow-lg);">
+                    <div class="console-header" style="background: #0D1325; padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                        <div class="console-title" style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-red);"></span>
+                            <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-yellow);"></span>
+                            <span class="console-dot" style="width: 12px; height: 12px; border-radius: 50%; display: inline-block; background-color: var(--accent-green);"></span>
+                            <span class="title-text" style="font-family: monospace; font-size: 0.85rem; color: var(--text-muted); margin-left: 0.5rem; font-weight: 600;">Терминал процесса (логирование)</span>
+                        </div>
+                        <div class="console-actions" style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary" id="btn-tg-clear-logs" title="Очистить консоль" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; height: auto;">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                            <button class="btn btn-secondary" id="btn-tg-copy-logs" title="Копировать все логи" style="padding: 0.35rem 0.65rem; font-size: 0.8rem; height: auto;">
+                                <i class="fa-solid fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="console-body" id="tg-console-body" style="flex: 1; padding: 1.25rem; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; line-height: 1.6; color: var(--accent-cyan); display: flex; flex-direction: column; gap: 0.35rem;">
+                        <div class="console-line system" style="color: var(--text-muted);">[Система] Консоль инициализирована. Задайте настройки выше и нажмите кнопку запуска.</div>
+                    </div>
+                </div>
+            </section>
+            <!-- Uniqualize Workspace -->
+            <section class="workspace-panel full-width-panel" id="uniqualize-panel" style="display: none; flex: 1; flex-direction: column; gap: 1.5rem;">
+                <div class="workspace-paths-bar">
+                    <div class="logo-area">
+                        <i class="fa-solid fa-images logo-icon" style="font-size: 1.8rem;"></i>
+                        <div class="logo-text">
+                            <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0;">Уникализация фото (Авито)</h2>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Берет папку с вашими реальными фото, распознает контекст через Vision ИИ, накладывает фирменную плашку с текстом и делает 5-15 вариантов уникализации</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="tg-setup-card" style="background: var(--bg-card); border: 1px solid var(--border-color); padding: 1.5rem; border-radius: 12px; display: flex; flex-direction: column; gap: 1.25rem;">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                            <label for="uniq-yandex-folder" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-brands fa-yandex"></i> Папка на Яндекс.Диске с исходными фото:</label>
+                            <input type="text" id="uniq-yandex-folder" placeholder="Например: /Баня_2х2_сырые" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Путь к папке на Яндекс.Диске. Исходные фотографии останутся целыми.</small>
+                        </div>
+                        
+                        <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
+                            <label for="uniq-variants-count" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-copy"></i> Количество уникализаций на каждое фото:</label>
+                            <input type="number" id="uniq-variants-count" min="1" max="200" value="10" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Введите любое число от 1 до 200. Система сделает кроп, ротацию, светокоррекцию, микро-шум, флип и наложит уникальный текст.</small>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 1rem; align-items: center; margin-top: 0.5rem;">
+                        <button class="btn btn-primary btn-icon-text" id="btn-start-uniqualize">
+                            <i class="fa-solid fa-play"></i> Запустить уникализацию
+                        </button>
+                        <button class="btn btn-secondary btn-icon-text" id="btn-stop-uniqualize" style="display: none; background-color: var(--accent-red); color: white; border-color: var(--accent-red);">
+                            <i class="fa-solid fa-stop"></i> Остановить процесс
+                        </button>
+                        
+                        <div id="uniq-spinner" style="display: none; align-items: center; gap: 0.5rem; color: var(--accent-cyan); font-size: 0.9rem;">
+                            <i class="fa-solid fa-spinner fa-spin"></i> <span id="uniq-spinner-text">Обработка...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Uniqualize Console Log & Results -->
+                <div class="console-box" style="flex: 1; display: flex; flex-direction: column; background: var(--bg-console); border: 1px solid var(--border-color); border-radius: 12px; overflow: hidden; min-height: 250px;">
+                    <div class="console-header" style="background: var(--bg-card); padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span class="console-dot" style="width: 10px; height: 10px; border-radius: 50%; background: var(--accent-cyan); display: inline-block; box-shadow: 0 0 8px var(--accent-cyan);"></span>
+                            <span style="font-size: 0.8rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Лог процесса и результаты</span>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn btn-secondary btn-icon-text" id="btn-copy-uniq-links" style="font-size: 0.75rem; padding: 0.35rem 0.65rem; display: none;">
+                                <i class="fa-solid fa-copy"></i> Скопировать ссылки для Excel
+                            </button>
+                        </div>
+                    </div>
+                    <div class="console-body" id="uniq-console-body" style="flex: 1; padding: 1.25rem; overflow-y: auto; font-family: 'Consolas', 'Monaco', monospace; font-size: 0.85rem; line-height: 1.6; color: var(--accent-cyan); display: flex; flex-direction: column; gap: 0.35rem;">
+                        <div class="console-line system" style="color: var(--text-muted);">[Система] Консоль уникализации готова. Укажите папку и запустите.</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- API Keys / Credentials Modal -->
+    <div class="modal-overlay" id="settings-modal">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3><i class="fa-solid fa-key"></i> Ключи API и Интеграция</h3>
+                <button class="btn-close-modal" id="btn-close-settings-modal">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="gemini-key-input">Google Gemini API Key:</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="gemini-key-input" placeholder="AIzaSy...">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('gemini-key-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Используется для маркетингового анализа текста и генерации изображений через Imagen 3.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="gemini-proxy-input">Прокси для Gemini API (необязательно):</label>
+                    <input type="text" id="gemini-proxy-input" placeholder="Например: http://user:pass@ip:port или socks5://ip:port">
+                    <small>Используйте внешний прокси (HTTP или SOCKS5), если сервер находится в заблокированном регионе (например, РФ).</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="yandex-token-input">Яндекс.Диск OAuth Токен:</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="yandex-token-input" placeholder="y0_...">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('yandex-token-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Токен для загрузки картинок в облако и автоматической публикации ссылок.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="yandex-client-id-input">Идентификатор приложения Яндекс (Client ID):</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="yandex-client-id-input" placeholder="bb9d4b22f0884401a1aa1695def54e2d">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('yandex-client-id-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Используется для интеграции с API Яндекс.Диска.</small>
+                </div>
+
+                <div class="form-group">
+                    <label for="yandex-client-secret-input">Секретный ключ приложения Яндекс (Client Secret):</label>
+                    <div class="input-password-wrap">
+                        <input type="password" id="yandex-client-secret-input" placeholder="89d8a53154444685a37738431393cf40">
+                        <button class="btn-toggle-visibility" onclick="togglePassword('yandex-client-secret-input')">
+                            <i class="fa-solid fa-eye"></i>
+                        </button>
+                    </div>
+                    <small>Используется для интеграции с API Яндекс.Диска.</small>
+                </div>
+
+
+                <div class="form-group">
+                    <label for="generation-delay-input">Задержка между генерациями картинок (в секундах):</label>
+                    <input type="number" id="generation-delay-input" min="0" max="60" value="5" style="width: 100%;">
+                    <small>Задержка помогает избежать ошибок превышения лимитов (Rate Limits / HTTP 429) на бесплатном тарифе Google AI Studio. Рекомендуется установить от 5 до 10 секунд.</small>
+                </div>
+
+                <div class="alert alert-info">
+                    <i class="fa-solid fa-circle-info"></i>
+                    <div>
+                        <strong>Где взять токен Яндекс.Диска?</strong><br>
+                        Зарегистрируйте приложение на <a href="https://oauth.yandex.ru/" target="_blank">oauth.yandex.ru</a> с правами на Яндекс.Диск (запись и чтение) или используйте сервис Яндекса для получения токена.
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-cancel-settings">Отмена</button>
+                <button class="btn btn-primary" id="btn-save-settings">Сохранить ключи</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Image Viewer Modal -->
+    <div class="modal-overlay" id="image-viewer-modal">
+        <div class="modal-card modal-large">
+            <div class="modal-header">
+                <h3 id="viewer-title">Просмотр изображения</h3>
+                <button class="btn-close-modal" id="btn-close-viewer-modal">&times;</button>
+            </div>
+            <div class="modal-body text-center">
+                <img id="viewer-img" src="" alt="Креатив крупным планом">
+                <div class="viewer-details mt-4">
+                    <p><strong>Оффер:</strong> <span id="viewer-banner-text"></span></p>
+                    <p><strong>Промпт:</strong> <span id="viewer-prompt" class="prompt-text-block"></span></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="btn-close-viewer">Закрыть</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+    <script>
+        function togglePassword(id) {
+            const input = document.getElementById(id);
+            const icon = input.nextElementSibling.querySelector('i');
+            if (input.type === "password") {
+                input.type = "text";
+                icon.classList.remove('fa-eye');
+                icon.classList.add('fa-eye-slash');
+            } else {
+                input.type = "password";
+                icon.classList.remove('fa-eye-slash');
+                icon.classList.add('fa-eye');
+            }
+        }
+    </script>
+</body>
+</html>
