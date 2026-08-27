@@ -162,93 +162,130 @@ def clean_price_value(val: str) -> str:
             pass
     return val
 
-def parse_structured_product_text(text: str) -> dict:
-    """Directly and accurately extracts structured fields from description.txt or docx."""
+def parse_structured_product_text(text: str, target_fields: Optional[List[str]] = None) -> dict:
+    """
+    Универсальный динамический парсер для любых клиентов, категорий и произвольных списков полей.
+    Автоматически извлекает свойства (Ключ: Значение), секции (--- СЕКЦИЯ ---), 
+    цены, названия, ссылки на видео, габариты и сопоставляет с запрошенными полями.
+    """
     res = {}
     if not text:
         return res
+        
+    normalized_text = text.replace('\r\n', '\n').replace('\r', '\n')
     
-    # 1. Price
-    price_match = re.search(r'(?:^|\n)\s*(?:Цена[^\n:\-—]*|Стоимость[^\n:\-—]*|Прайс[^\n:\-—]*)\s*[:\-—]\s*([^\n\r]+)', text, re.IGNORECASE)
-    if price_match:
-        p_val = price_match.group(1).strip()
-        p_val = re.sub(r'^["\'«»]+|["\'«»]+$', '', p_val).strip()
-        cleaned_p = clean_price_value(p_val)
-        if cleaned_p and cleaned_p != '000 ₽':
-            res["Цена"] = cleaned_p
-            
-    if "Цена" not in res:
-        price_fb = re.search(r'Цена[^\d\n]*(\d[\d\s]{3,}\d)', text, re.IGNORECASE)
-        if price_fb:
-            res["Цена"] = clean_price_value(price_fb.group(1))
+    # 1. Сбор всех пар Ключ -> Значение из текста
+    kv_store = {}
+    for line in normalized_text.split('\n'):
+        line_s = line.strip()
+        if not line_s or line_s.startswith('---'):
+            continue
+        m = re.match(r'^(?:[-*•]\s*)?([A-Za-zА-Яа-я0-9\s()/_.,"-]{2,40})\s*[:=]\s*(.+)$', line_s)
+        if m:
+            k = m.group(1).strip().lower()
+            v = m.group(2).strip()
+            if v and len(k) < 40 and not any(skip in k for skip in ["http", "https", "//"]):
+                kv_store[k] = v
+                
+    # 2. Сбор секций (--- НАЗВАНИЕ СЕКЦИИ ---)
+    sections = {}
+    sec_matches = list(re.finditer(r'(?:^|\n)\s*---\s*([A-Za-zА-Яа-я0-9\s()/_.,"-]+?)\s*---\s*\n([\s\S]+?)(?=(?:\n\s*---\s*[A-Za-zА-Яа-я0-9\s()/_.,"-]+?\s*---)|\Z)', normalized_text))
+    for sm in sec_matches:
+        sec_name = sm.group(1).strip().lower()
+        sec_content = sm.group(2).strip()
+        sections[sec_name] = sec_content
 
-    # 2. Name / Model
-    name_match = re.search(r'(?:^|\n)\s*(?:Название[^\n:\-—]*|Модель[^\n:\-—]*|Товар[^\n:\-—]*|Наименование[^\n:\-—]*)\s*[:\-—]\s*([^\n\r]+)', text, re.IGNORECASE)
+    # 3. Базовые сущности
+    # 3.1. Цена
+    clean_price = ""
+    price_match = re.search(r'(?:^|\n)\s*(?:Цена[^\n:\-—]*|Стоимость[^\n:\-—]*|Прайс[^\n:\-—]*|Cost|Price)\s*[:\-—=]\s*([^\n\r]+)', normalized_text, re.IGNORECASE)
+    if price_match:
+        p_val = price_match.group(1).strip().strip('"\'«»')
+        clean_price = clean_price_value(p_val)
+            
+    if not clean_price or clean_price == '000 ₽':
+        price_fb = re.search(r'(?:Цена|Стоимость|Итого)[^\d\n]*(\d[\d\s]{3,}\d)', normalized_text, re.IGNORECASE)
+        if price_fb:
+            clean_price = clean_price_value(price_fb.group(1))
+
+    # 3.2. Название / Модель
+    clean_title = ""
+    name_match = re.search(r'(?:^|\n)\s*(?:Название[^\n:\-—=]*|Модель[^\n:\-—=]*|Товар[^\n:\-—=]*|Наименование[^\n:\-—=]*|Product|Title|Model)\s*[:\-—=]\s*([^\n\r]+)', normalized_text, re.IGNORECASE)
     if name_match:
-        n_val = name_match.group(1).strip()
-        n_val = re.sub(r'^["\'«»]+|["\'«»]+$', '', n_val).strip()
-        if n_val:
-            res["Название"] = n_val
+        clean_title = name_match.group(1).strip().strip('"\'«»')
     else:
-        for line in text.split('\n'):
-            line_str = line.strip()
-            if any(line_str.lower().startswith(pfx) for pfx in ["баня", "квадро", "викинг", "бочка", "беседка", "чан", "овал", "дом"]):
-                if not any(stop_kw in line_str.lower() for stop_kw in ["спецификация", "характеристики", "цена", "размер"]):
-                    res["Название"] = line_str
+        for line in normalized_text.split('\n'):
+            line_str = line.strip().strip('"\'«»')
+            if line_str and not line_str.startswith('---') and not any(kw in line_str.lower() for kw in ["цена", "стоимость", "id vk", "ссылка", "http"]):
+                if len(line_str) < 120 and not line_str.startswith('-') and not line_str.startswith('*'):
+                    clean_title = line_str
                     break
-                    
-    # 3. Video Link
-    video_urls = []
-    for line in text.split('\n'):
+
+    # 3.3. Ссылки на видео
+    video_links = []
+    for line in normalized_text.split('\n'):
         line_clean = line.strip()
-        if re.search(r'(?:https?://|//)?(?:[a-zA-Z0-9-]+\.)*(?:vkvideo\.ru|vk\.ru/video|vk\.com/video|okcdn\.ru|ok\.ru/video|youtube\.com|youtu\.be|rutube\.ru)[^\s]*', line_clean, re.IGNORECASE):
+        if re.search(r'(?:https?://|//)?(?:[a-zA-Z0-9-]+\.)*(?:vkvideo\.ru|vk\.ru/video|vk\.com/video|okcdn\.ru|ok\.ru/video|youtube\.com|youtu\.be|rutube\.ru|vimeo\.com)[^\s]*', line_clean, re.IGNORECASE):
             m = re.search(r'((?:https?://|//)[^\s]+)', line_clean)
             if m:
                 u = m.group(1)
                 if u.startswith('//'):
                     u = 'https:' + u
-                video_urls.append(u)
+                video_links.append(u)
             elif 'vkvideo.ru' in line_clean:
-                video_urls.append('https://vkvideo.ru')
-    if video_urls:
-        res["Ссылка на видео"] = "\n".join(video_urls)
-        res["Видео"] = "\n".join(video_urls)
+                video_links.append('https://vkvideo.ru')
+    clean_video = "\n".join(video_links) if video_links else ""
 
-    # 4. Dimensions & Parameters
-    dim_match = re.search(r'(?:^|\n)\s*--- РАЗМЕРЫ И ГАБАРИТЫ ---\s*\n([\s\S]+?)(?=\n\s*---|\Z)', text)
-    dim_text = dim_match.group(1).strip() if dim_match else ""
-    
-    spec_match = re.search(r'(?:^|\n)\s*(?:Спецификация|Характеристики|Комплектация|Параметры)\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Цена|Стоимость|--- РАЗМЕРЫ|ID VK|Ссылка:|\Z))', text, re.IGNORECASE)
-    spec_text = spec_match.group(1).strip() if spec_match else ""
-    
-    combined_params = ""
-    if dim_text:
-        combined_params += dim_text + "\n"
-    if spec_text:
-        combined_params += spec_text
-        
-    if combined_params:
-        combined_params = re.sub(r'Show\s*more|Отдельно просчитывается.*|Крыльцо для бани.*', '', combined_params, flags=re.IGNORECASE).strip()
-        res["Параметры"] = combined_params
-        res["Спецификация"] = combined_params
-        res["Характеристики"] = combined_params
-        
-    # 5. Description
-    full_desc_match = re.search(r'(?:^|\n)\s*--- ПОЛНОЕ ОПИСАНИЕ ---\s*\n([\s\S]+?)(?=\n\s*(?:Спецификация|Цена|Отдельно просчитывается|Show\s*more)|\Z)', text, re.IGNORECASE)
-    if full_desc_match:
-        d_val = full_desc_match.group(1).strip()
-        if d_val and not d_val.lower().startswith("спецификация"):
-            res["Описание"] = d_val
+    # 3.4. Описание и Параметры / Спецификация
+    clean_desc = ""
+    clean_params = ""
+    for sec_k, sec_v in sections.items():
+        if any(k in sec_k for k in ["габарит", "размер", "параметр", "характеристик", "спецификац", "комплектац"]):
+            clean_params += f"{sec_v}\n"
+        elif any(k in sec_k for k in ["описан", "информац", "о товаре", "полное"]):
+            clean_desc += f"{sec_v}\n"
+
+    if not clean_params:
+        spec_match = re.search(r'(?:^|\n)\s*(?:Спецификация|Характеристики|Комплектация|Параметры)\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Цена|Стоимость|---|\Z))', normalized_text, re.IGNORECASE)
+        if spec_match:
+            clean_params = spec_match.group(1).strip()
             
-    if "Описание" not in res:
-        desc_match = re.search(r'(?:^|\n)\s*Описание\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Спецификация|Характеристики|Комплектация|Параметры|Цена|Стоимость)\s*[:\-—]|\Z)', text, re.IGNORECASE)
+    if not clean_desc:
+        desc_match = re.search(r'(?:^|\n)\s*(?:Описание|О товаре|Подробно)\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Спецификация|Характеристики|Комплектация|Параметры|Цена|---|\Z))', normalized_text, re.IGNORECASE)
         if desc_match:
-            desc_text = desc_match.group(1).strip()
-            if desc_text:
-                res["Описание"] = desc_text
-                
-    if "Описание" not in res and combined_params:
-        res["Описание"] = f"{res.get('Название', '')}\n\nХарактеристики и комплектация:\n{combined_params}"
+            clean_desc = desc_match.group(1).strip()
+
+    clean_params = re.sub(r'Show\s*more|Отдельно просчитывается.*|Крыльцо для бани.*|ID VK:.*|Ссылка:.*', '', clean_params, flags=re.IGNORECASE).strip()
+    clean_desc = re.sub(r'Show\s*more|Отдельно просчитывается.*|Крыльцо для бани.*|ID VK:.*|Ссылка:.*', '', clean_desc, flags=re.IGNORECASE).strip()
+
+    # Стандартные ассоциации
+    res["Цена"] = clean_price
+    res["Название"] = clean_title
+    res["Ссылка на видео"] = clean_video
+    res["Видео"] = clean_video
+    res["Параметры"] = clean_params
+    res["Спецификация"] = clean_params
+    res["Характеристики"] = clean_params
+    res["Описание"] = clean_desc if clean_desc else (f"{clean_title}\n\nХарактеристики и комплектация:\n{clean_params}" if clean_params else "")
+
+    # Динамический маппинг пользовательских полей
+    if target_fields:
+        for field in target_fields:
+            f_norm = field.strip()
+            f_low = f_norm.lower()
+            if f_norm in res and res[f_norm]:
+                continue
+            # Поиск в kv_store
+            for k, v in kv_store.items():
+                if k == f_low or k.startswith(f_low) or f_low.startswith(k):
+                    res[f_norm] = v
+                    break
+            # Поиск в sections
+            if not res.get(f_norm):
+                for sec_k, sec_v in sections.items():
+                    if sec_k == f_low or sec_k.startswith(f_low) or f_low in sec_k:
+                        res[f_norm] = sec_v
+                        break
 
     return res
 
@@ -911,7 +948,7 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
             pricing_text     = item["pricing_text"]
             
             # Step 2a: Direct structured parsing from description/pricing text
-            direct_parsed = parse_structured_product_text(description_text + "\n" + pricing_text)
+            direct_parsed = parse_structured_product_text(description_text + "\n" + pricing_text, target_fields=field_names)
             
             combined_context = ""
             if description_text.strip():
@@ -933,9 +970,12 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
             
             # Pre-populate direct matches
             for field in gemini_field_names:
-                for direct_k, direct_v in direct_parsed.items():
-                    if direct_k.lower() == field.lower():
-                        product_info[field] = direct_v
+                if field in direct_parsed and direct_parsed[field]:
+                    product_info[field] = direct_parsed[field]
+                else:
+                    for direct_k, direct_v in direct_parsed.items():
+                        if direct_k.lower() == field.lower() and direct_v:
+                            product_info[field] = direct_v
             
             if combined_context.strip():
                 add_log("Форматирование и извлечение данных через Gemini 3.6 Flash...")
