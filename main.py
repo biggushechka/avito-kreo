@@ -151,6 +151,15 @@ def clean_price_value(val: str) -> str:
     val = str(val).replace('\xa0', ' ').replace('\u20bd', '₽').strip()
     val = re.sub(r'\s+', ' ', val)
     val = re.sub(r'(\d+),(\d{3})', r'\1 \2', val)
+    digits_m = re.search(r'(\d[\d\s.,]*)', val)
+    if digits_m:
+        raw_num = digits_m.group(1).replace(' ', '').replace(',', '').replace('.', '')
+        try:
+            num = int(raw_num)
+            if num > 1000:
+                return f"{num:,}".replace(',', ' ') + " ₽"
+        except Exception:
+            pass
     return val
 
 def parse_structured_product_text(text: str) -> dict:
@@ -160,35 +169,87 @@ def parse_structured_product_text(text: str) -> dict:
         return res
     
     # 1. Price
-    price_match = re.search(r'(?:^|\n)\s*(?:Цена|Стоимость|Прайс)\s*[:\-—]\s*([^\n\r]+)', text, re.IGNORECASE)
+    price_match = re.search(r'(?:^|\n)\s*(?:Цена[^\n:\-—]*|Стоимость[^\n:\-—]*|Прайс[^\n:\-—]*)\s*[:\-—]\s*([^\n\r]+)', text, re.IGNORECASE)
     if price_match:
         p_val = price_match.group(1).strip()
         p_val = re.sub(r'^["\'«»]+|["\'«»]+$', '', p_val).strip()
-        res["Цена"] = clean_price_value(p_val)
-    
-    # 2. Name
-    name_match = re.search(r'(?:^|\n)\s*(?:Название|Модель|Товар|Наименование)\s*[:\-—]\s*([^\n\r]+)', text, re.IGNORECASE)
+        cleaned_p = clean_price_value(p_val)
+        if cleaned_p and cleaned_p != '000 ₽':
+            res["Цена"] = cleaned_p
+            
+    if "Цена" not in res:
+        price_fb = re.search(r'Цена[^\d\n]*(\d[\d\s]{3,}\d)', text, re.IGNORECASE)
+        if price_fb:
+            res["Цена"] = clean_price_value(price_fb.group(1))
+
+    # 2. Name / Model
+    name_match = re.search(r'(?:^|\n)\s*(?:Название[^\n:\-—]*|Модель[^\n:\-—]*|Товар[^\n:\-—]*|Наименование[^\n:\-—]*)\s*[:\-—]\s*([^\n\r]+)', text, re.IGNORECASE)
     if name_match:
         n_val = name_match.group(1).strip()
         n_val = re.sub(r'^["\'«»]+|["\'«»]+$', '', n_val).strip()
-        res["Название"] = n_val
+        if n_val:
+            res["Название"] = n_val
+    else:
+        for line in text.split('\n'):
+            line_str = line.strip()
+            if any(line_str.lower().startswith(pfx) for pfx in ["баня", "квадро", "викинг", "бочка", "беседка", "чан", "овал", "дом"]):
+                if not any(stop_kw in line_str.lower() for stop_kw in ["спецификация", "характеристики", "цена", "размер"]):
+                    res["Название"] = line_str
+                    break
+                    
+    # 3. Video Link
+    video_urls = []
+    for line in text.split('\n'):
+        line_clean = line.strip()
+        if re.search(r'(?:https?://|//)?(?:[a-zA-Z0-9-]+\.)*(?:vkvideo\.ru|vk\.ru/video|vk\.com/video|okcdn\.ru|ok\.ru/video|youtube\.com|youtu\.be|rutube\.ru)[^\s]*', line_clean, re.IGNORECASE):
+            m = re.search(r'((?:https?://|//)[^\s]+)', line_clean)
+            if m:
+                u = m.group(1)
+                if u.startswith('//'):
+                    u = 'https:' + u
+                video_urls.append(u)
+            elif 'vkvideo.ru' in line_clean:
+                video_urls.append('https://vkvideo.ru')
+    if video_urls:
+        res["Ссылка на видео"] = "\n".join(video_urls)
+        res["Видео"] = "\n".join(video_urls)
+
+    # 4. Dimensions & Parameters
+    dim_match = re.search(r'(?:^|\n)\s*--- РАЗМЕРЫ И ГАБАРИТЫ ---\s*\n([\s\S]+?)(?=\n\s*---|\Z)', text)
+    dim_text = dim_match.group(1).strip() if dim_match else ""
+    
+    spec_match = re.search(r'(?:^|\n)\s*(?:Спецификация|Характеристики|Комплектация|Параметры)\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Цена|Стоимость|--- РАЗМЕРЫ|ID VK|Ссылка:|\Z))', text, re.IGNORECASE)
+    spec_text = spec_match.group(1).strip() if spec_match else ""
+    
+    combined_params = ""
+    if dim_text:
+        combined_params += dim_text + "\n"
+    if spec_text:
+        combined_params += spec_text
         
-    # 3. Description
-    desc_match = re.search(r'(?:^|\n)\s*Описание\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Спецификация|Характеристики|Комплектация|Параметры|Цена|Стоимость)\s*[:\-—]|\Z)', text, re.IGNORECASE)
-    if desc_match:
-        desc_text = desc_match.group(1).strip()
-        if desc_text:
-            res["Описание"] = desc_text
+    if combined_params:
+        combined_params = re.sub(r'Show\s*more|Отдельно просчитывается.*|Крыльцо для бани.*', '', combined_params, flags=re.IGNORECASE).strip()
+        res["Параметры"] = combined_params
+        res["Спецификация"] = combined_params
+        res["Характеристики"] = combined_params
+        
+    # 5. Description
+    full_desc_match = re.search(r'(?:^|\n)\s*--- ПОЛНОЕ ОПИСАНИЕ ---\s*\n([\s\S]+?)(?=\n\s*(?:Спецификация|Цена|Отдельно просчитывается|Show\s*more)|\Z)', text, re.IGNORECASE)
+    if full_desc_match:
+        d_val = full_desc_match.group(1).strip()
+        if d_val and not d_val.lower().startswith("спецификация"):
+            res["Описание"] = d_val
             
-    # 4. Parameters / Specs
-    spec_match = re.search(r'(?:^|\n)\s*(?:Спецификация|Характеристики|Комплектация|Параметры)\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Цена|Стоимость|Описание|Название)\s*[:\-—]|\Z)', text, re.IGNORECASE)
-    if spec_match:
-        spec_text = spec_match.group(1).strip()
-        if spec_text:
-            res["Параметры"] = spec_text
-            res["Спецификация"] = spec_text
-            res["Характеристики"] = spec_text
-            
+    if "Описание" not in res:
+        desc_match = re.search(r'(?:^|\n)\s*Описание\s*[:\-—]?\s*\n?([\s\S]+?)(?=\n\s*(?:Спецификация|Характеристики|Комплектация|Параметры|Цена|Стоимость)\s*[:\-—]|\Z)', text, re.IGNORECASE)
+        if desc_match:
+            desc_text = desc_match.group(1).strip()
+            if desc_text:
+                res["Описание"] = desc_text
+                
+    if "Описание" not in res and combined_params:
+        res["Описание"] = f"{res.get('Название', '')}\n\nХарактеристики и комплектация:\n{combined_params}"
+
     return res
 
 def save_config(config: dict) -> None:
@@ -542,6 +603,7 @@ def add_log(msg: str):
 
 def escape_tsv_cell(val: Any) -> str:
     s = str(val) if val is not None else ""
+    s = s.replace('\r\n', '\n').replace('\r', '\n')
     if "\n" in s or "\t" in s or '"' in s:
         # Wrap in quotes and double internal quotes as per standard RFC 4180
         s = s.replace('"', '""')
@@ -796,10 +858,11 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
         total_products = len(products_to_process)
         add_log(f"Всего товаров для обработки ИИ: {total_products}")
         
-        # Detect if user already included a photo/link field in prompt_fields
+        # Detect if user already included a dedicated photo/image link field in prompt_fields
         photo_field_name = None
         for fn in field_names:
-            if any(kw in fn.lower() for kw in ["ссылк", "фото", "url", "link", "photo"]):
+            fn_low = fn.lower()
+            if any(kw in fn_low for kw in ["фото", "photo", "image", "изображен", "картинк"]) or (("ссылк" in fn_low or "url" in fn_low or "link" in fn_low) and not any(v_kw in fn_low for v_kw in ["видео", "video", "youtube", "rutube", "vk"])):
                 photo_field_name = fn
                 break
         
@@ -932,37 +995,57 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                     add_log(f"Успешный разбор полей ИИ!")
                 except Exception as gemini_err:
                     add_log(f"Предупреждение: Ошибка анализа Gemini ({gemini_err}). Используем структурированный парсер.")
-                    # Keep direct parsed values
                     for field in gemini_field_names:
-                        if not product_info.get(field):
-                            for direct_k, direct_v in direct_parsed.items():
-                                if direct_k.lower() == field.lower() and direct_v:
-                                    product_info[field] = direct_v
-                    if field_names and not product_info.get(field_names[0]):
-                        product_info[field_names[0]] = direct_parsed.get("Название") or product_name
+                        for direct_k, direct_v in direct_parsed.items():
+                            if direct_k.lower() == field.lower() and direct_v:
+                                product_info[field] = direct_v
             else:
-                add_log("Описание отсутствует, используем структурированные данные и имя папки.")
+                add_log("Описание отсутствует, используем структурированные данные.")
                 for field in gemini_field_names:
                     for direct_k, direct_v in direct_parsed.items():
                         if direct_k.lower() == field.lower() and direct_v:
                             product_info[field] = direct_v
-                if field_names and not product_info.get(field_names[0]):
-                    product_info[field_names[0]] = direct_parsed.get("Название") or product_name
 
-            # Ensure direct parsed price is used if Gemini omitted it
-            if direct_parsed.get("Цена"):
-                for field in field_names:
-                    if any(p_kw in field.lower() for p_kw in ["цен", "стоимост", "price"]):
-                        if not product_info.get(field) or product_info.get(field) == '""':
+            # Guarantee Name is populated accurately
+            for field in field_names:
+                if any(n_kw in field.lower() for n_kw in ["назван", "модел", "товар", "name"]) and field != folder_field_name:
+                    curr_val = str(product_info.get(field, "")).strip()
+                    if not curr_val or curr_val.isdigit() or curr_val.lower().startswith("новая папка"):
+                        if direct_parsed.get("Название"):
+                            product_info[field] = direct_parsed["Название"]
+                        elif direct_parsed.get("Описание"):
+                            first_line = direct_parsed["Описание"].split("\n")[0].strip()
+                            if first_line and len(first_line) < 100 and not first_line.lower().startswith("спецификация"):
+                                product_info[field] = first_line
+
+            # Guarantee Price is populated accurately
+            for field in field_names:
+                if any(p_kw in field.lower() for p_kw in ["цен", "стоимост", "price"]):
+                    curr_val = str(product_info.get(field, "")).strip()
+                    if not curr_val or curr_val == '""' or curr_val == '000 ₽':
+                        if direct_parsed.get("Цена"):
                             product_info[field] = direct_parsed["Цена"]
 
-            # Ensure direct parsed name is used if current is just a folder digit
-            if direct_parsed.get("Название"):
-                for field in field_names:
-                    if any(n_kw in field.lower() for n_kw in ["назван", "модел", "товар", "name"]):
-                        curr_val = str(product_info.get(field, "")).strip()
-                        if not curr_val or curr_val.isdigit() or curr_val.lower().startswith("новая папка"):
-                            product_info[field] = direct_parsed["Название"]
+            # Guarantee Description is populated accurately
+            for field in field_names:
+                if any(d_kw in field.lower() for d_kw in ["описан", "desc"]):
+                    curr_val = str(product_info.get(field, "")).strip()
+                    if not curr_val and direct_parsed.get("Описание"):
+                        product_info[field] = direct_parsed["Описание"]
+
+            # Guarantee Parameters are populated accurately
+            for field in field_names:
+                if any(sp_kw in field.lower() for sp_kw in ["параметр", "характеристик", "спецификац", "комплектац", "габарит"]):
+                    curr_val = str(product_info.get(field, "")).strip()
+                    if not curr_val and direct_parsed.get("Параметры"):
+                        product_info[field] = direct_parsed["Параметры"]
+
+            # Guarantee Video Link is populated accurately
+            for field in field_names:
+                if any(v_kw in field.lower() for v_kw in ["видео", "video", "rutube", "vk"]):
+                    curr_val = str(product_info.get(field, "")).strip()
+                    if not curr_val and direct_parsed.get("Ссылка на видео"):
+                        product_info[field] = direct_parsed["Ссылка на видео"]
 
             # Ensure Category field is populated
             if category:
