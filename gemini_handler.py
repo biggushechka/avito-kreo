@@ -72,7 +72,7 @@ class GeminiHandler:
         }
         try:
             response = self._make_text_request_with_fallback(payload, timeout=6)
-            return response.status_code == 200
+            return response.status_code in (200, 429)
         except Exception:
             return False
 
