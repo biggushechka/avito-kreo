@@ -1759,9 +1759,7 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
         # Create subfolders in output folder if source had subfolders
         created_subfolders = set()
 
-        # 4. Font path for plaque overlay
-        font_path = os.path.join(BASE_DIR, "static", "Montserrat-Bold.ttf")
-
+        # 4. Process each photo for pure photographic uniqualization
         result_links = []
 
         for photo_idx, photo in enumerate(photo_files):
@@ -1790,17 +1788,6 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                 except Exception:
                     pass
 
-            # 4b. Analyze photo with Gemini Vision to get banner text
-            uniqualize_status["message"] = (
-                f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: генерирую текст плашки..."
-            )
-            try:
-                banner_text = gemini.analyze_photo_for_banner(original_bytes, global_context)
-                logger.info(f"[Unique] Photo {photo_idx+1} banner: «{banner_text}»")
-            except Exception as vision_err:
-                banner_text = ""
-                logger.warning(f"[Unique] Vision failed for {photo['name']}: {vision_err}. No overlay.")
-
             # Ensure output subfolder exists on Yandex.Disk
             target_out_dir = out_folder
             if rel_sub:
@@ -1809,23 +1796,16 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                     yandex.create_folder(target_out_dir)
                     created_subfolders.add(rel_sub)
 
-            # 4c. Generate N uniqualized variants
+            # 4b. Generate N clean uniqualized variants (no text overlays / no plaques)
             for v_idx in range(variants_count):
                 seed = photo_idx * 1000 + v_idx
                 uniqualize_status["message"] = (
-                    f"Фото {photo_idx+1}/{len(photo_files)}: вариант {v_idx+1}/{variants_count}..."
+                    f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: вариант {v_idx+1}/{variants_count}..."
                 )
 
                 try:
-                    # Apply uniqualization transforms
+                    # Apply pure photographic uniqualization transforms
                     variant_bytes = apply_uniqualization(original_bytes, seed)
-
-                    # Overlay Slate Neon plaque if we have banner text
-                    if banner_text and os.path.exists(font_path):
-                        try:
-                            variant_bytes = draw_text_overlay_python(variant_bytes, banner_text, font_path)
-                        except Exception as overlay_err:
-                            logger.warning(f"[Unique] Overlay failed: {overlay_err}")
 
                     # Upload to Yandex.Disk
                     variant_name = f"{base_name}_v{v_idx+1:02d}.jpg"
@@ -1846,9 +1826,9 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
 
         uniqualize_status["result_links"] = result_links
         uniqualize_status["message"] = (
-            f"Готово! {len(result_links)} файлов загружено в «{out_folder}»."
+            f"Готово! {len(result_links)} чистых уникализированных фото загружено в «{out_folder}»."
         )
-        logger.info(f"[Unique] Completed. {len(result_links)} files uploaded.")
+        logger.info(f"[Unique] Completed clean uniqualization. {len(result_links)} files uploaded.")
 
     except Exception as e:
         logger.exception("[Unique] Fatal error")

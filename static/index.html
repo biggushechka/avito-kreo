@@ -369,7 +369,7 @@
                         <i class="fa-solid fa-images logo-icon" style="font-size: 1.8rem;"></i>
                         <div class="logo-text">
                             <h2 style="font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin: 0;">Уникализация фото (Авито)</h2>
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Берет папку с вашими реальными фото, распознает контекст через Vision ИИ, накладывает фирменную плашку с текстом и делает 5-15 вариантов уникализации</p>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin: 0;">Создает чистые уникальные копии исходных фотографий для обхода антифрод-фильтров Авито: удаляет EXIF, делает микро-ротацию, кроп, светокоррекцию, шум матрицы и хеш-рандомизацию (без плашек и текста)</p>
                         </div>
                     </div>
                 </div>
@@ -378,14 +378,14 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
                         <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
                             <label for="uniq-yandex-folder" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-brands fa-yandex"></i> Папка на Яндекс.Диске с исходными фото:</label>
-                            <input type="text" id="uniq-yandex-folder" placeholder="Например: /Баня_2х2_сырые" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
-                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Путь к папке на Яндекс.Диске. Исходные фотографии останутся целыми.</small>
+                            <input type="text" id="uniq-yandex-folder" placeholder="Например: /Markoos/Penkof/Price_26_08/1 или /Markoos/Penkof/Price_26_08" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Путь к папке конкретного товара или ко всему каталогу. Исходные фотографии останутся целыми.</small>
                         </div>
                         
                         <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
                             <label for="uniq-variants-count" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-copy"></i> Количество уникализаций на каждое фото:</label>
-                            <input type="number" id="uniq-variants-count" min="1" max="200" value="10" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
-                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Введите любое число от 1 до 200. Система сделает кроп, ротацию, светокоррекцию, микро-шум, флип и наложит уникальный текст.</small>
+                            <input type="number" id="uniq-variants-count" min="1" max="200" value="5" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Введите количество копий. Система сделает умный кроп, микро-ротацию, светокоррекцию, шум матрицы и очистит метаданные.</small>
                         </div>
                     </div>
 
