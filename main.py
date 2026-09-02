@@ -1684,34 +1684,82 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
         gemini = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
         yandex = YandexDiskHandler(yandex_token)
 
-        # 1. List photos in the source folder with natural sort
-        uniqualize_status["message"] = "Читаю папку на Яндекс.Диске..."
-        all_files = yandex.list_files(yandex_folder)
-        photo_files = [
-            f for f in all_files
-            if f["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp"))
+        # 1. Smart Path Resolution
+        folder_clean = yandex_folder.strip().replace("\\", "/")
+        if not folder_clean.startswith("/"):
+            folder_clean = "/" + folder_clean
+
+        resolved_folder = None
+        candidates = [
+            folder_clean,
+            f"/Markoos{folder_clean}",
+            f"{config.get('default_yandex_dir', '').rstrip('/')}/{folder_clean.lstrip('/')}",
+            f"/Markoos/Penkof/{folder_clean.lstrip('/')}"
         ]
-        photo_files.sort(key=lambda f: natural_sort_key(f["name"]))
+        for cand in candidates:
+            cand_norm = "/" + cand.strip("/ ")
+            try:
+                if yandex.check_directory_exists(cand_norm):
+                    resolved_folder = cand_norm
+                    break
+            except Exception:
+                pass
+
+        if not resolved_folder:
+            resolved_folder = folder_clean
+
+        uniqualize_status["message"] = f"Читаю папку «{resolved_folder}» на Яндекс.Диске..."
+        
+        # 2. Collect photos: direct files AND subdirectories (1, 2, 3...)
+        photo_files = []
+        direct_files = yandex.list_files(resolved_folder)
+        for f in direct_files:
+            if f["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                photo_files.append({
+                    "name": f["name"],
+                    "path": f["path"],
+                    "rel_subfolder": ""
+                })
+
+        subdirs = yandex.list_subdirectories(resolved_folder)
+        subdirs.sort(key=natural_sort_key)
+        for s in subdirs:
+            try:
+                sub_path = f"{resolved_folder}/{s}"
+                s_files = yandex.list_files(sub_path)
+                s_files.sort(key=lambda x: natural_sort_key(x["name"]))
+                for sf in s_files:
+                    if sf["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                        photo_files.append({
+                            "name": sf["name"],
+                            "path": sf["path"],
+                            "rel_subfolder": s
+                        })
+            except Exception as sub_err:
+                logger.warning(f"[Unique] Warning scanning subfolder {s}: {sub_err}")
+
         if not photo_files:
-            raise Exception(f"В папке '{yandex_folder}' не найдено фото (JPG/PNG/WEBP).")
+            raise Exception(f"В папке '{resolved_folder}' не найдено фото (JPG/PNG/WEBP). Проверьте правильность пути.")
 
         uniqualize_status["total_photos"] = len(photo_files)
         uniqualize_status["total_variants"] = len(photo_files) * variants_count
         uniqualize_status["done_variants"] = 0
-        uniqualize_status["message"] = f"Найдено {len(photo_files)} фото. Начинаю обработку..."
-        logger.info(f"[Unique] Found {len(photo_files)} photos in '{yandex_folder}'.")
+        uniqualize_status["message"] = f"Найдено {len(photo_files)} фото (в {len(subdirs) if subdirs else 1} папках). Начинаю обработку..."
+        logger.info(f"[Unique] Found {len(photo_files)} photos in '{resolved_folder}'.")
 
-        # 2. Create output folder
+        # 3. Create output folder
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        # Put output folder next to source folder (sibling)
-        parent = "/".join(yandex_folder.rstrip("/").split("/")[:-1]) or "/"
-        src_name = yandex_folder.rstrip("/").split("/")[-1]
+        parent = "/".join(resolved_folder.rstrip("/").split("/")[:-1]) or "/"
+        src_name = resolved_folder.rstrip("/").split("/")[-1]
         out_folder = f"{parent}/{src_name}_unique_{ts}"
         yandex.create_folder(out_folder)
         uniqualize_status["output_folder"] = out_folder
         logger.info(f"[Unique] Output folder: {out_folder}")
 
-        # 3. Font path for plaque overlay
+        # Create subfolders in output folder if source had subfolders
+        created_subfolders = set()
+
+        # 4. Font path for plaque overlay
         font_path = os.path.join(BASE_DIR, "static", "Montserrat-Bold.ttf")
 
         result_links = []
@@ -1720,12 +1768,14 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
             uniqualize_status["current_photo"] = photo_idx + 1
             base_name = os.path.splitext(photo["name"])[0]
             disk_path = photo["path"]
+            rel_sub = photo.get("rel_subfolder", "")
 
+            label_prefix = f"[{rel_sub}] " if rel_sub else ""
             uniqualize_status["message"] = (
-                f"Фото {photo_idx+1}/{len(photo_files)} «{photo['name']}»: скачиваю..."
+                f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: скачиваю..."
             )
 
-            # 3a. Download photo from Yandex.Disk to temp file
+            # 4a. Download photo from Yandex.Disk to temp file
             with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                 tmp_path = tmp.name
             try:
@@ -1740,9 +1790,9 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                 except Exception:
                     pass
 
-            # 3b. Analyze photo with Gemini Vision to get banner text
+            # 4b. Analyze photo with Gemini Vision to get banner text
             uniqualize_status["message"] = (
-                f"Фото {photo_idx+1}/{len(photo_files)} «{photo['name']}»: генерирую текст плашки..."
+                f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: генерирую текст плашки..."
             )
             try:
                 banner_text = gemini.analyze_photo_for_banner(original_bytes, global_context)
@@ -1751,7 +1801,15 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                 banner_text = ""
                 logger.warning(f"[Unique] Vision failed for {photo['name']}: {vision_err}. No overlay.")
 
-            # 3c. Generate N uniqualized variants
+            # Ensure output subfolder exists on Yandex.Disk
+            target_out_dir = out_folder
+            if rel_sub:
+                target_out_dir = f"{out_folder}/{rel_sub}"
+                if rel_sub not in created_subfolders:
+                    yandex.create_folder(target_out_dir)
+                    created_subfolders.add(rel_sub)
+
+            # 4c. Generate N uniqualized variants
             for v_idx in range(variants_count):
                 seed = photo_idx * 1000 + v_idx
                 uniqualize_status["message"] = (
@@ -1771,11 +1829,11 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
 
                     # Upload to Yandex.Disk
                     variant_name = f"{base_name}_v{v_idx+1:02d}.jpg"
-                    disk_out_path = f"{out_folder}/{variant_name}"
+                    disk_out_path = f"{target_out_dir}/{variant_name}"
                     url = yandex.upload_bytes(variant_bytes, disk_out_path, overwrite=True)
 
                     if url:
-                        result_links.append({"filename": variant_name, "url": url})
+                        result_links.append({"filename": f"{rel_sub}/{variant_name}" if rel_sub else variant_name, "url": url})
                         logger.info(f"[Unique] Uploaded {variant_name} → {url}")
                     else:
                         logger.warning(f"[Unique] Upload returned no URL for {variant_name}")
