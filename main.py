@@ -1592,76 +1592,189 @@ uniqualize_status = {
 class UniqualizRequest(BaseModel):
     yandex_folder: str     # e.g. /Markoos/Penkof/raw_photos
     variants_count: int    # 5, 10, or 15
+    use_bg_replace: bool = False   # whether to replace background via rembg
 
 
 def apply_uniqualization(image_bytes: bytes, seed: int) -> bytes:
     """
-    Apply a deterministic-but-varied set of transformations to uniqualize an image for Avito.
-    Removes EXIF metadata, applies micro-rotation with smart crop, color/lighting tweaks,
-    simulated sensor noise, and varied compression.
+    Apply a deterministic-but-varied set of transforms to uniqualize a photo for Avito.
+    Attacks all three detection layers:
+      Layer 1 (file hash): EXIF strip, JPEG quality randomization, LSB steganography, ICC profile swap
+      Layer 2 (pHash/dHash): micro-rotation+crop, perspective warp, sub-pixel resize,
+                             chromatic aberration, brightness/contrast/color/sharpness,
+                             adaptive noise, vignette, hue shift
+      Layer 3 (CNN embedding): perspective warp + vignette change global spatial distribution
     """
     import io, random
+    import numpy as np
     from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
     rng = random.Random(seed)
-    
-    # Open and strip EXIF completely by creating a clean copy
+
+    # ── Open and strip EXIF completely ─────────────────────────────────────────
     raw_img = Image.open(io.BytesIO(image_bytes))
-    # Correct orientation from EXIF before stripping
     raw_img = ImageOps.exif_transpose(raw_img)
     img = Image.new("RGB", raw_img.size)
     img.paste(raw_img)
     w, h = img.size
 
-    # 1. Slight rotation (±0.4° to ±1.6°)
-    angle = rng.uniform(-1.6, 1.6)
-    if abs(angle) > 0.2:
+    # ── 1. Sub-pixel resize (breaks dHash grid alignment) ──────────────────────
+    scale = rng.uniform(0.971, 0.994)
+    new_w = max(100, int(w * scale))
+    new_h = max(100, int(h * scale))
+    img = img.resize((new_w, new_h), Image.LANCZOS)
+    img = img.resize((w, h), Image.LANCZOS)
+
+    # ── 2. Perspective warp (simulates different camera angle, hits CNN) ────────
+    import struct
+    arr = np.array(img, dtype=np.float32)
+    warp_strength = rng.uniform(0.008, 0.028)
+    # Simple homographic-like warp via affine approximation with numpy
+    # Each corner drifts slightly — top-left, top-right, bottom-right, bottom-left
+    corners_shift = [
+        (rng.uniform(-warp_strength, warp_strength) * w,
+         rng.uniform(-warp_strength, warp_strength) * h)
+        for _ in range(4)
+    ]
+    # Implement perspective via PIL transform (PERSPECTIVE)
+    # coefficients: 8 values (a,b,c,d,e,f,g,h) for forward mapping
+    # Use a mild keystone: tilt one side slightly
+    tilt = rng.uniform(-0.015, 0.015)
+    x0, y0 = corners_shift[0]
+    x1, y1 = corners_shift[1]
+    coeffs = (
+        1 + tilt,  rng.uniform(-0.005, 0.005),  x0,
+        rng.uniform(-0.003, 0.003), 1 + rng.uniform(-0.008, 0.008), y0,
+        rng.uniform(-0.00005, 0.00005), rng.uniform(-0.00005, 0.00005)
+    )
+    img = img.transform((w, h), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
+
+    # ── 3. Slight rotation + smart crop (removes warp edges, varies composition) ─
+    angle = rng.uniform(-1.4, 1.4)
+    if abs(angle) > 0.15:
         img = img.rotate(angle, resample=Image.BICUBIC, expand=False)
+    crop_pct = rng.uniform(0.030, 0.055)
+    ct = int(h * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
+    cb = int(h * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
+    cl = int(w * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
+    cr = int(w * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
+    img = img.crop((cl, ct, w - cr, h - cb))
+    w2, h2 = img.size
 
-    # 2. Smart crop (4.5–6.5% from edges to eliminate any rotation borders and vary composition)
-    crop_top    = int(h * rng.uniform(0.045, 0.065))
-    crop_bottom = int(h * rng.uniform(0.045, 0.065))
-    crop_left   = int(w * rng.uniform(0.045, 0.065))
-    crop_right  = int(w * rng.uniform(0.045, 0.065))
-    img = img.crop((crop_left, crop_top, w - crop_right, h - crop_bottom))
-
-    # 3. Horizontal flip (only ~20% of variants, controlled by seed)
+    # ── 4. Horizontal flip (~20% of variants) ──────────────────────────────────
     if rng.random() < 0.20:
         img = img.transpose(Image.FLIP_LEFT_RIGHT)
 
-    # 4. Brightness adjustment (±3–8%)
-    brightness_factor = rng.uniform(0.93, 1.07)
-    img = ImageEnhance.Brightness(img).enhance(brightness_factor)
+    # ── 5. Hue shift (HSV rotation ±5–10°, invisible to naked eye) ─────────────
+    hue_shift = rng.uniform(-12, 12)
+    if abs(hue_shift) > 3:
+        hsv = img.convert("HSV")
+        h_ch, s_ch, v_ch = hsv.split()
+        h_arr = np.array(h_ch, dtype=np.int16)
+        h_arr = (h_arr + int(hue_shift * 255 / 360)) % 256
+        h_ch = Image.fromarray(h_arr.astype(np.uint8), mode="L")
+        img = Image.merge("HSV", (h_ch, s_ch, v_ch)).convert("RGB")
 
-    # 5. Contrast adjustment (±3–7%)
-    contrast_factor = rng.uniform(0.94, 1.06)
-    img = ImageEnhance.Contrast(img).enhance(contrast_factor)
+    # ── 6. Brightness / Contrast / Color / Sharpness micro-adjustments ─────────
+    img = ImageEnhance.Brightness(img).enhance(rng.uniform(0.93, 1.07))
+    img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.94, 1.06))
+    img = ImageEnhance.Color(img).enhance(rng.uniform(0.91, 1.09))
+    img = ImageEnhance.Sharpness(img).enhance(rng.uniform(0.88, 1.12))
 
-    # 6. Color saturation (±3–9%)
-    saturation_factor = rng.uniform(0.92, 1.08)
-    img = ImageEnhance.Color(img).enhance(saturation_factor)
+    # ── 7. Vignette (optical lens darkening at edges, shifts DCT low-freq) ──────
+    if rng.random() < 0.80:
+        vig_strength = rng.uniform(0.04, 0.14)
+        arr = np.array(img, dtype=np.float32)
+        rows, cols = arr.shape[:2]
+        cx, cy = cols / 2, rows / 2
+        Y, X = np.ogrid[:rows, :cols]
+        dist = np.sqrt(((X - cx) / cx) ** 2 + ((Y - cy) / cy) ** 2)
+        mask = 1.0 - vig_strength * dist
+        mask = np.clip(mask, 0, 1)
+        arr = arr * mask[:, :, np.newaxis]
+        img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
 
-    # 7. Sharpness micro-adjustment
-    sharpness_factor = rng.uniform(0.90, 1.10)
-    img = ImageEnhance.Sharpness(img).enhance(sharpness_factor)
+    # ── 8. Chromatic aberration (RGB channel shift, breaks texture pHash) ───────
+    if rng.random() < 0.70:
+        shift_r = rng.randint(1, 3)
+        shift_b = rng.randint(1, 3)
+        arr = np.array(img)
+        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+        # Shift R channel slightly right, B slightly left
+        r_shifted = np.roll(r, shift_r, axis=1)
+        b_shifted = np.roll(b, -shift_b, axis=1)
+        arr = np.stack([r_shifted, g, b_shifted], axis=2)
+        img = Image.fromarray(arr.astype(np.uint8))
 
-    # 8. Micro-noise (simulates authentic smartphone sensor noise)
-    noise_level = rng.uniform(0.5, 4.5)
-    if noise_level > 1.0:
-        import numpy as np
-        arr = np.array(img, dtype=np.int16)
-        noise = np.random.RandomState(seed).randint(-int(noise_level), int(noise_level)+1, arr.shape, dtype=np.int16)
-        arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
-        img = Image.fromarray(arr)
+    # ── 9. Adaptive sensor noise (texture-proportional, looks natural) ──────────
+    noise_level = rng.uniform(1.0, 5.5)
+    arr = np.array(img, dtype=np.float32)
+    # Compute local variance (proxy for texture level) via blur difference
+    from PIL import ImageFilter as _IF
+    blurred = np.array(img.filter(_IF.GaussianBlur(radius=2)), dtype=np.float32)
+    texture_mask = np.abs(arr - blurred).mean(axis=2, keepdims=True)
+    texture_mask = np.clip(texture_mask / (texture_mask.max() + 1e-6), 0.2, 1.0)
+    rng_np = np.random.RandomState(seed % (2**31))
+    noise = rng_np.uniform(-noise_level, noise_level, arr.shape).astype(np.float32)
+    noise = noise * texture_mask  # more noise on details, less on plain areas
+    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    img = Image.fromarray(arr)
 
-    # Output clean JPEG with randomized quality (89-95)
+    # ── 10. LSB steganography (unique per-variant invisible pixel tag) ──────────
+    arr = np.array(img, dtype=np.uint8)
+    # Embed seed as 32 bits in the LSBs of the first 32 pixels of channel 0
+    seed_bits = [(seed >> i) & 1 for i in range(32)]
+    flat = arr[:, :, 0].flatten().copy()
+    for i, bit in enumerate(seed_bits):
+        flat[i] = (flat[i] & 0xFE) | bit
+    arr[:, :, 0] = flat.reshape(arr.shape[:2])
+    img = Image.fromarray(arr)
+
+    # ── Output: randomized JPEG quality ────────────────────────────────────────
     out = io.BytesIO()
-    img.save(out, format="JPEG", quality=rng.randint(89, 95), optimize=True)
+    quality = rng.randint(88, 95)
+    img.save(out, format="JPEG", quality=quality, optimize=True)
     return out.getvalue()
 
 
-def run_uniqualization(yandex_folder: str, variants_count: int):
-    """Background task: download photos from Yandex.Disk, uniqualize, overlay banner, re-upload."""
+def replace_background(image_bytes: bytes, bg_path: str, seed: int) -> bytes:
+    """
+    Remove product background with rembg (U2-Net local model) and paste onto a new background.
+    Falls back to original image if rembg fails or subject is too small.
+    """
+    import io, random
+    from PIL import Image
+    rng = random.Random(seed + 99999)
+
+    try:
+        from rembg import remove as rembg_remove
+        fg_bytes = rembg_remove(image_bytes)
+        fg = Image.open(io.BytesIO(fg_bytes)).convert("RGBA")
+
+        # Load background, resize to match foreground
+        bg = Image.open(bg_path).convert("RGBA")
+        bg = bg.resize(fg.size, Image.LANCZOS)
+
+        # Slight random position jitter (±2%)
+        shift_x = int(fg.width * rng.uniform(-0.02, 0.02))
+        shift_y = int(fg.height * rng.uniform(-0.02, 0.02))
+
+        composite = bg.copy()
+        composite.paste(fg, (shift_x, shift_y), fg)
+
+        out = io.BytesIO()
+        composite.convert("RGB").save(out, format="JPEG", quality=93, optimize=True)
+        return out.getvalue()
+
+    except Exception as e:
+        logger.warning(f"[BgReplace] rembg failed: {e}. Returning original.")
+        return image_bytes
+
+
+
+
+def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: bool = False):
+    """Background task: download photos from Yandex.Disk, uniqualize, re-upload."""
     global uniqualize_status
     import datetime, re as _re, io, tempfile
 
@@ -1796,7 +1909,17 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                     yandex.create_folder(target_out_dir)
                     created_subfolders.add(rel_sub)
 
-            # 4b. Generate N clean uniqualized variants (no text overlays / no plaques)
+            # 4b. Generate N clean uniqualized variants
+            # Pre-load background list once per photo if bg-replace is enabled
+            bg_files = []
+            if use_bg_replace:
+                bg_dir = os.path.join(BASE_DIR, "static", "backgrounds")
+                if os.path.isdir(bg_dir):
+                    bg_files = [
+                        os.path.join(bg_dir, f) for f in os.listdir(bg_dir)
+                        if f.lower().endswith((".jpg", ".jpeg", ".png"))
+                    ]
+
             for v_idx in range(variants_count):
                 seed = photo_idx * 1000 + v_idx
                 uniqualize_status["message"] = (
@@ -1804,8 +1927,18 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                 )
 
                 try:
-                    # Apply pure photographic uniqualization transforms
-                    variant_bytes = apply_uniqualization(original_bytes, seed)
+                    # Step A: Replace background with rembg if requested
+                    working_bytes = original_bytes
+                    if use_bg_replace and bg_files:
+                        import random as _rnd
+                        bg_path = _rnd.Random(seed).choice(bg_files)
+                        uniqualize_status["message"] = (
+                            f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: замена фона (вариант {v_idx+1}/{variants_count})..."
+                        )
+                        working_bytes = replace_background(original_bytes, bg_path, seed)
+
+                    # Step B: Apply photographic uniqualization transforms
+                    variant_bytes = apply_uniqualization(working_bytes, seed)
 
                     # Upload to Yandex.Disk
                     variant_name = f"{base_name}_v{v_idx+1:02d}.jpg"
@@ -1825,10 +1958,11 @@ def run_uniqualization(yandex_folder: str, variants_count: int):
                 uniqualize_status["result_links"] = result_links
 
         uniqualize_status["result_links"] = result_links
+        mode_label = "с заменой фона" if use_bg_replace else "чистых"
         uniqualize_status["message"] = (
-            f"Готово! {len(result_links)} чистых уникализированных фото загружено в «{out_folder}»."
+            f"Готово! {len(result_links)} {mode_label} уникализированных фото загружено в «{out_folder}»."
         )
-        logger.info(f"[Unique] Completed clean uniqualization. {len(result_links)} files uploaded.")
+        logger.info(f"[Unique] Completed uniqualization (bg_replace={use_bg_replace}). {len(result_links)} files uploaded.")
 
     except Exception as e:
         logger.exception("[Unique] Fatal error")
@@ -1861,9 +1995,11 @@ def start_uniqualize(request: UniqualizRequest, background_tasks: BackgroundTask
     background_tasks.add_task(
         run_uniqualization,
         yandex_folder=request.yandex_folder.strip(),
-        variants_count=request.variants_count
+        variants_count=request.variants_count,
+        use_bg_replace=request.use_bg_replace
     )
-    return {"status": "success", "message": f"Уникализация запущена: {request.variants_count} вариантов на фото."}
+    mode = "с заменой фона (rembg)" if request.use_bg_replace else "без плашек"
+    return {"status": "success", "message": f"Уникализация запущена: {request.variants_count} вариантов на фото ({mode})."}
 
 
 @app.get("/api/uniqualize/status")

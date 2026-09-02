@@ -2291,7 +2291,7 @@ async function startUniqualizationProcess() {
         const response = await fetch('/api/uniqualize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ yandex_folder: yandexFolder, variants_count: count })
+            body: JSON.stringify({ yandex_folder: yandexFolder, variants_count: count, use_bg_replace: !!(document.getElementById('uniq-bg-replace') && document.getElementById('uniq-bg-replace').checked) })
         });
         
         const result = await response.json();
