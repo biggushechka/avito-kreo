@@ -1837,6 +1837,14 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                 })
 
         subdirs = yandex.list_subdirectories(resolved_folder)
+        # Exclude any previous output folders, hidden folders, or system folders
+        subdirs = [
+            s for s in subdirs 
+            if not s.startswith((".", "_")) 
+            and "_unique" not in s.lower() 
+            and "исходные" not in s.lower()
+            and not s.lower().startswith("пак_")
+        ]
         subdirs.sort(key=natural_sort_key)
         for s in subdirs:
             try:
@@ -1871,10 +1879,19 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         uniqualize_status["message"] = f"Найдено {len(photo_files)} фото для {len(products_map)} товаров. Создаю структуру папок..."
         logger.info(f"[Unique] Found {len(photo_files)} photos across {len(products_map)} products.")
 
-        # 3. Create output folder
+        # 3. Create output folder OUTSIDE the catalog to prevent polluting source catalog
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        parent = "/".join(resolved_folder.rstrip("/").split("/")[:-1]) or "/"
-        out_folder = f"{parent}/{src_name}_unique_{ts}"
+        parts = [p for p in resolved_folder.strip("/").split("/") if p]
+        
+        if len(parts) >= 3 and not subdirs:
+            # Targeted single product (e.g. /Markoos/Penkof/Price_26_08/1) -> place next to catalog
+            catalog_parent = "/" + "/".join(parts[:-2])
+            catalog_name = parts[-2]
+            out_folder = f"{catalog_parent}/{catalog_name}_unique_{ts}"
+        else:
+            parent = "/" + "/".join(parts[:-1]) if len(parts) > 1 else "/"
+            out_folder = f"{parent}/{src_name}_unique_{ts}"
+
         yandex.create_folder(out_folder)
         uniqualize_status["output_folder"] = out_folder
         logger.info(f"[Unique] Output folder: {out_folder}")
