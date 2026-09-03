@@ -16,7 +16,7 @@ class GeminiHandler:
         self.text_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={self.api_key}"
         self.image_url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key={self.api_key}"
 
-    def _make_request_with_retry(self, url: str, payload: dict, timeout: int, max_retries: int = 5) -> requests.Response:
+    def _make_request_with_retry(self, url: str, payload: dict, timeout: int, max_retries: int = 2) -> requests.Response:
         import time
         for attempt in range(max_retries):
             try:
@@ -24,25 +24,24 @@ class GeminiHandler:
                 if response.status_code == 429:
                     resp_text = response.text.lower()
                     if "quota exceeded" in resp_text or "prepayment credits" in resp_text or "depleted" in resp_text:
-                        # Instant fail to trigger fallback immediately without sleeping for hard limits
                         return response
                     if attempt == max_retries - 1:
                         return response
-                    print(f"[RATE LIMIT] Got 429 (Resource Exhausted). Sleeping 10 seconds (Attempt {attempt+1}/{max_retries})...")
-                    time.sleep(10.0)
+                    print(f"[RATE LIMIT] Got 429. Quick wait 3s (Attempt {attempt+1}/{max_retries})...")
+                    time.sleep(3.0)
                     continue
                 elif response.status_code in (500, 502, 503, 504):
                     if attempt == max_retries - 1:
                         return response
-                    print(f"[SERVER ERROR] Got {response.status_code}. Retrying in 3.0 seconds (Attempt {attempt+1}/{max_retries})...")
-                    time.sleep(3.0)
+                    print(f"[SERVER ERROR] Got {response.status_code}. Quick wait 1.5s (Attempt {attempt+1}/{max_retries})...")
+                    time.sleep(1.5)
                     continue
                 return response
             except requests.exceptions.RequestException as e:
                 if attempt == max_retries - 1:
                     raise e
-                print(f"[CONNECTION ERROR] {e}. Retrying in 3.0 seconds (Attempt {attempt+1}/{max_retries})...")
-                time.sleep(3.0)
+                print(f"[CONNECTION ERROR] {e}. Retrying in 1.5s (Attempt {attempt+1}/{max_retries})...")
+                time.sleep(1.5)
         return requests.post(url, headers=self.headers, json=payload, timeout=timeout, proxies=self.proxies)
 
     def _make_text_request_with_fallback(self, payload: dict, timeout: int) -> requests.Response:
