@@ -46,7 +46,7 @@ class GeminiHandler:
         return requests.post(url, headers=self.headers, json=payload, timeout=timeout, proxies=self.proxies)
 
     def _make_text_request_with_fallback(self, payload: dict, timeout: int) -> requests.Response:
-        models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.5-flash", "gemini-flash-latest"]
+        models = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]
         last_response = None
         for model in models:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
@@ -70,16 +70,17 @@ class GeminiHandler:
             "contents": [{"parts": [{"text": "Say: ok"}]}],
             "generationConfig": {"maxOutputTokens": 10}
         }
-        try:
-            response = self._make_text_request_with_fallback(payload, timeout=8)
-            return response.status_code in (200, 429)
-        except Exception as e:
-            err = str(e).lower()
-            # Empty model output is still an authenticated response —
-            # the key is valid, the model just chose not to respond.
-            if "empty" in err or "output text" in err or "tool calls" in err or "output must contain" in err:
-                return True
-            return False
+        for model in ["gemini-3.7-flash", "gemini-flash-latest"]:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+            try:
+                r = requests.post(url, headers=self.headers, json=payload, timeout=4, proxies=self.proxies)
+                if r.status_code in (200, 429):
+                    return True
+            except Exception as e:
+                err = str(e).lower()
+                if "empty" in err or "output text" in err or "tool calls" in err or "output must contain" in err:
+                    return True
+        return False
 
     def analyze_photo_for_banner(self, image_bytes: bytes, global_context: str) -> str:
         """
