@@ -214,18 +214,26 @@ class YandexDiskHandler:
 
     def upload_bytes(self, data: bytes, disk_file_path: str, overwrite: bool = True) -> Optional[str]:
         """
-        Uploads bytes (e.g. generated image) directly to Yandex.Disk without saving to a local file.
-        Returns the public URL in disk.yandex.ru/i/ format.
+        Uploads bytes directly to Yandex.Disk at disk_file_path and returns the public URL.
+        Retries up to 3 times on transient errors (Yandex Disk occasionally returns no URL on first attempt).
         """
-        import tempfile
-        import os
-        # Write to a temp file then upload
+        import tempfile, os, time
+
         suffix = os.path.splitext(disk_file_path)[1] or ".jpg"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(data)
             tmp_path = tmp.name
+
         try:
-            return self.upload_file(tmp_path, disk_file_path, overwrite=overwrite)
+            for attempt in range(1, 4):
+                result = self.upload_file(tmp_path, disk_file_path, overwrite=overwrite)
+                if result:
+                    return result
+                if attempt < 3:
+                    print(f"[YD] upload_bytes: attempt {attempt} returned None for {disk_file_path}, retrying in 2s...")
+                    time.sleep(2)
+            print(f"[YD] upload_bytes: all 3 attempts failed for {disk_file_path}")
+            return None
         finally:
             try:
                 os.unlink(tmp_path)
