@@ -1585,7 +1585,9 @@ uniqualize_status = {
     "done_variants": 0,
     "message": "",
     "error": "",
-    "result_links": [],       # list of {"filename": ..., "url": ...}
+    "result_links": [],       # list of {"product": ..., "pack": ..., "filename": ..., "url": ...}
+    "result_packs": [],       # list of {"product": ..., "pack": ..., "urls": [...]}
+    "result_tsv": "",         # 3-column TSV: Папка товара \t Пак \t Ссылки на фото
     "output_folder": ""
 }
 
@@ -1854,115 +1856,164 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         if not photo_files:
             raise Exception(f"В папке '{resolved_folder}' не найдено фото (JPG/PNG/WEBP). Проверьте правильность пути.")
 
+        # Group photos by product folder (e.g. '1', '2', etc. or source folder name if single)
+        src_name = resolved_folder.rstrip("/").split("/")[-1]
+        products_map = {}
+        for p in photo_files:
+            prod_name = p.get("rel_subfolder") or src_name or "1"
+            if prod_name not in products_map:
+                products_map[prod_name] = []
+            products_map[prod_name].append(p)
+
         uniqualize_status["total_photos"] = len(photo_files)
         uniqualize_status["total_variants"] = len(photo_files) * variants_count
         uniqualize_status["done_variants"] = 0
-        uniqualize_status["message"] = f"Найдено {len(photo_files)} фото (в {len(subdirs) if subdirs else 1} папках). Начинаю обработку..."
-        logger.info(f"[Unique] Found {len(photo_files)} photos in '{resolved_folder}'.")
+        uniqualize_status["message"] = f"Найдено {len(photo_files)} фото для {len(products_map)} товаров. Создаю структуру папок..."
+        logger.info(f"[Unique] Found {len(photo_files)} photos across {len(products_map)} products.")
 
         # 3. Create output folder
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         parent = "/".join(resolved_folder.rstrip("/").split("/")[:-1]) or "/"
-        src_name = resolved_folder.rstrip("/").split("/")[-1]
         out_folder = f"{parent}/{src_name}_unique_{ts}"
         yandex.create_folder(out_folder)
         uniqualize_status["output_folder"] = out_folder
         logger.info(f"[Unique] Output folder: {out_folder}")
 
-        # Create subfolders in output folder if source had subfolders
-        created_subfolders = set()
+        # Pre-load background list if bg-replace is enabled
+        bg_files = []
+        if use_bg_replace:
+            bg_dir = os.path.join(BASE_DIR, "static", "backgrounds")
+            if os.path.isdir(bg_dir):
+                bg_files = [
+                    os.path.join(bg_dir, f) for f in os.listdir(bg_dir)
+                    if f.lower().endswith((".jpg", ".jpeg", ".png"))
+                ]
 
-        # 4. Process each photo for pure photographic uniqualization
+        created_folders = set()
         result_links = []
+        # Store URLs by product and pack: pack_urls[(prod_name, pack_num)] = [url1, url2...]
+        from collections import defaultdict
+        pack_urls = defaultdict(list)
+        orig_urls = defaultdict(list)
 
-        for photo_idx, photo in enumerate(photo_files):
-            uniqualize_status["current_photo"] = photo_idx + 1
-            base_name = os.path.splitext(photo["name"])[0]
-            disk_path = photo["path"]
-            rel_sub = photo.get("rel_subfolder", "")
+        global_photo_idx = 0
+        for prod_idx, (prod_name, prod_photos) in enumerate(products_map.items()):
+            # Base directory for this product: out_folder/prod_name
+            prod_base_dir = f"{out_folder}/{prod_name}"
+            
+            # Subfolder: исходные
+            orig_dir = f"{prod_base_dir}/исходные"
+            if orig_dir not in created_folders:
+                yandex.create_folder(orig_dir)
+                created_folders.add(orig_dir)
 
-            label_prefix = f"[{rel_sub}] " if rel_sub else ""
-            uniqualize_status["message"] = (
-                f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: скачиваю..."
-            )
+            # Subfolders: пак_1 .. пак_N
+            pack_dirs = {}
+            for pack_num in range(1, variants_count + 1):
+                p_dir = f"{prod_base_dir}/пак_{pack_num}"
+                if p_dir not in created_folders:
+                    yandex.create_folder(p_dir)
+                    created_folders.add(p_dir)
+                pack_dirs[pack_num] = p_dir
 
-            # 4a. Download photo from Yandex.Disk to temp file
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                tmp_path = tmp.name
-            try:
-                ok = yandex.download_file(disk_path, tmp_path)
-                if not ok or not os.path.exists(tmp_path):
-                    raise Exception(f"Не удалось скачать {photo['name']}")
-                with open(tmp_path, "rb") as f:
-                    original_bytes = f.read()
-            finally:
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+            for p_in_prod, photo in enumerate(prod_photos):
+                global_photo_idx += 1
+                uniqualize_status["current_photo"] = global_photo_idx
+                disk_path = photo["path"]
 
-            # Ensure output subfolder exists on Yandex.Disk
-            target_out_dir = out_folder
-            if rel_sub:
-                target_out_dir = f"{out_folder}/{rel_sub}"
-                if rel_sub not in created_subfolders:
-                    yandex.create_folder(target_out_dir)
-                    created_subfolders.add(rel_sub)
-
-            # 4b. Generate N clean uniqualized variants
-            # Pre-load background list once per photo if bg-replace is enabled
-            bg_files = []
-            if use_bg_replace:
-                bg_dir = os.path.join(BASE_DIR, "static", "backgrounds")
-                if os.path.isdir(bg_dir):
-                    bg_files = [
-                        os.path.join(bg_dir, f) for f in os.listdir(bg_dir)
-                        if f.lower().endswith((".jpg", ".jpeg", ".png"))
-                    ]
-
-            for v_idx in range(variants_count):
-                seed = photo_idx * 1000 + v_idx
                 uniqualize_status["message"] = (
-                    f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: вариант {v_idx+1}/{variants_count}..."
+                    f"Товар «{prod_name}» | Фото {p_in_prod+1}/{len(prod_photos)} «{photo['name']}»: скачиваю..."
                 )
 
+                # Download original photo
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    tmp_path = tmp.name
                 try:
-                    # Step A: Replace background with rembg if requested
-                    working_bytes = original_bytes
-                    if use_bg_replace and bg_files:
-                        import random as _rnd
-                        bg_path = _rnd.Random(seed).choice(bg_files)
-                        uniqualize_status["message"] = (
-                            f"Фото {photo_idx+1}/{len(photo_files)} {label_prefix}«{photo['name']}»: замена фона (вариант {v_idx+1}/{variants_count})..."
-                        )
-                        working_bytes = replace_background(original_bytes, bg_path, seed)
+                    ok = yandex.download_file(disk_path, tmp_path)
+                    if not ok or not os.path.exists(tmp_path):
+                        raise Exception(f"Не удалось скачать {photo['name']}")
+                    with open(tmp_path, "rb") as f:
+                        original_bytes = f.read()
+                finally:
+                    try:
+                        os.unlink(tmp_path)
+                    except Exception:
+                        pass
 
-                    # Step B: Apply photographic uniqualization transforms
-                    variant_bytes = apply_uniqualization(working_bytes, seed)
+                # Upload to "исходные" folder once
+                orig_disk_path = f"{orig_dir}/{photo['name']}"
+                orig_url = yandex.upload_bytes(original_bytes, orig_disk_path, overwrite=True)
+                if orig_url:
+                    orig_urls[prod_name].append(orig_url)
 
-                    # Upload to Yandex.Disk
-                    variant_name = f"{base_name}_v{v_idx+1:02d}.jpg"
-                    disk_out_path = f"{target_out_dir}/{variant_name}"
-                    url = yandex.upload_bytes(variant_bytes, disk_out_path, overwrite=True)
+                # Generate variants for each pack
+                for pack_num in range(1, variants_count + 1):
+                    v_idx = pack_num - 1
+                    seed = global_photo_idx * 1000 + v_idx
 
-                    if url:
-                        result_links.append({"filename": f"{rel_sub}/{variant_name}" if rel_sub else variant_name, "url": url})
-                        logger.info(f"[Unique] Uploaded {variant_name} → {url}")
-                    else:
-                        logger.warning(f"[Unique] Upload returned no URL for {variant_name}")
+                    uniqualize_status["message"] = (
+                        f"Товар «{prod_name}» | пак {pack_num}/{variants_count} | «{photo['name']}»..."
+                    )
 
-                except Exception as variant_err:
-                    logger.error(f"[Unique] Variant {v_idx+1} of {photo['name']} failed: {variant_err}")
+                    try:
+                        # Step A: Replace background with rembg if requested
+                        working_bytes = original_bytes
+                        if use_bg_replace and bg_files:
+                            import random as _rnd
+                            bg_path = _rnd.Random(seed).choice(bg_files)
+                            working_bytes = replace_background(original_bytes, bg_path, seed)
 
-                uniqualize_status["done_variants"] += 1
-                uniqualize_status["result_links"] = result_links
+                        # Step B: Apply 10 photographic uniqualization transforms
+                        variant_bytes = apply_uniqualization(working_bytes, seed)
 
+                        # Upload to corresponding pack folder: out_folder/prod_name/пак_N/photo_name
+                        pack_disk_path = f"{pack_dirs[pack_num]}/{photo['name']}"
+                        url = yandex.upload_bytes(variant_bytes, pack_disk_path, overwrite=True)
+
+                        if url:
+                            pack_urls[(prod_name, pack_num)].append(url)
+                            result_links.append({
+                                "product": prod_name,
+                                "pack": f"пак_{pack_num}",
+                                "filename": photo["name"],
+                                "url": url
+                            })
+                            logger.info(f"[Unique] Uploaded {prod_name}/пак_{pack_num}/{photo['name']} → {url}")
+                        else:
+                            logger.warning(f"[Unique] Upload failed for {prod_name}/пак_{pack_num}/{photo['name']}")
+
+                    except Exception as variant_err:
+                        logger.error(f"[Unique] Variant {pack_num} of {photo['name']} failed: {variant_err}")
+
+                    uniqualize_status["done_variants"] += 1
+                    uniqualize_status["result_links"] = result_links
+
+        # 4. Construct 3-column TSV for Excel (Папка товара | Пак | Ссылки на фото)
+        tsv_lines = ["Папка товара\tПак\tСсылки на фото"]
+        result_packs = []
+        for prod_name in sorted(products_map.keys(), key=natural_sort_key):
+            for pack_num in range(1, variants_count + 1):
+                urls = pack_urls.get((prod_name, pack_num), [])
+                if urls:
+                    joined_urls = "\n".join(urls)
+                    escaped_urls = f'"{joined_urls.replace(chr(34), chr(34)+chr(34))}"'
+                    tsv_lines.append(f"{prod_name}\tпак_{pack_num}\t{escaped_urls}")
+                    result_packs.append({
+                        "product": prod_name,
+                        "pack": f"пак_{pack_num}",
+                        "urls": urls
+                    })
+
+        result_tsv = "\n".join(tsv_lines)
         uniqualize_status["result_links"] = result_links
+        uniqualize_status["result_packs"] = result_packs
+        uniqualize_status["result_tsv"] = result_tsv
+
         mode_label = "с заменой фона" if use_bg_replace else "чистых"
         uniqualize_status["message"] = (
-            f"Готово! {len(result_links)} {mode_label} уникализированных фото загружено в «{out_folder}»."
+            f"Готово! {len(products_map)} товаров распределены по папкам «исходные» и «пак_1»...«пак_{variants_count}» ({len(result_links)} фото). Нажмите «Скопировать ссылки для Excel»."
         )
-        logger.info(f"[Unique] Completed uniqualization (bg_replace={use_bg_replace}). {len(result_links)} files uploaded.")
+        logger.info(f"[Unique] Completed. {len(result_links)} files uploaded in {len(products_map)} products.")
 
     except Exception as e:
         logger.exception("[Unique] Fatal error")

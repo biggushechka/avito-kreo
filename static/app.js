@@ -2175,6 +2175,7 @@ function clearPacksResults() {
 let uniqPollInterval = null;
 let lastUniqMessage = "";
 let uniqualizedResultLinks = [];
+let uniqualizedResultTsv = "";
 
 // Clear Uniqualizer console logs
 function clearUniqConsole() {
@@ -2225,6 +2226,7 @@ async function pollUniqualizeStatus(quiet = false) {
         }
 
         uniqualizedResultLinks = status.result_links || [];
+        uniqualizedResultTsv = status.result_tsv || "";
         
         if (status.active) {
             // Disable start button, show spinner
@@ -2310,32 +2312,45 @@ async function startUniqualizationProcess() {
 
 // Copy links to clipboard for Excel (one cell, newlines inside quotes)
 function copyUniqualizedLinksToClipboard() {
-    if (uniqualizedResultLinks.length === 0) {
-        showNotification('Нет ссылок для копирования.', 'warning');
+    let textToCopy = '';
+    
+    if (uniqualizedResultTsv && uniqualizedResultTsv.trim()) {
+        textToCopy = uniqualizedResultTsv;
+    } else if (uniqualizedResultLinks && uniqualizedResultLinks.length > 0) {
+        const lines = ["Папка товара\tПак\tСсылки на фото"];
+        const packMap = {};
+        for (const item of uniqualizedResultLinks) {
+            const prod = item.product || '1';
+            const pack = item.pack || 'пак_1';
+            const key = prod + '|||' + pack;
+            if (!packMap[key]) packMap[key] = [];
+            packMap[key].push(item.url);
+        }
+        for (const [key, urls] of Object.entries(packMap)) {
+            const [prod, pack] = key.split('|||');
+            const joined = urls.join('\n').replace(/"/g, '""');
+            lines.push(`${prod}\t${pack}\t"${joined}"`);
+        }
+        textToCopy = lines.join('\n');
+    } else {
+        showNotification('Нет готовых ссылок для копирования.', 'warning');
         return;
     }
-    
-    // Extract only URLs
-    const urls = uniqualizedResultLinks.map(item => item.url);
-    
-    // Wrap inside quotes and separate with newlines.
-    // This allows pasting all links into exactly ONE cell in Excel with internal line breaks.
-    const text = '"' + urls.join('\n').replace(/"/g, '""') + '"';
-    
-    navigator.clipboard.writeText(text).then(() => {
-        showNotification(`Скопировано ${urls.length} ссылок! Вставьте в Excel — они поместятся в одну ячейку.`, 'success');
+
+    navigator.clipboard.writeText(textToCopy).then(() => {
+        showNotification('Скопирована таблица для Excel: 3 колонки (Папка товара | Пак | Ссылки на фото)!', 'success');
         const btn = elements.btnCopyUniqLinks;
         if (btn) {
             const orig = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-check"></i> Скопировано!';
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> Скопировано (3 колонки)!';
             btn.style.background = 'var(--accent-green)';
             setTimeout(() => {
                 btn.innerHTML = orig;
                 btn.style.background = '';
-            }, 2000);
+            }, 2500);
         }
     }).catch(err => {
-        console.error('Failed to copy links:', err);
-        showNotification('Ошибка копирования ссылок', 'error');
+        console.error('Failed to copy table:', err);
+        showNotification('Ошибка копирования в буфер', 'error');
     });
 }
