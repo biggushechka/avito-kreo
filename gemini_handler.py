@@ -67,13 +67,18 @@ class GeminiHandler:
     def check_connection(self) -> bool:
         """Verify the API key by making a fast lightweight request."""
         payload = {
-            "contents": [{"parts": [{"text": "ping"}]}],
-            "generationConfig": {"maxOutputTokens": 100}
+            "contents": [{"parts": [{"text": "Say: ok"}]}],
+            "generationConfig": {"maxOutputTokens": 10}
         }
         try:
-            response = self._make_text_request_with_fallback(payload, timeout=6)
+            response = self._make_text_request_with_fallback(payload, timeout=8)
             return response.status_code in (200, 429)
-        except Exception:
+        except Exception as e:
+            err = str(e).lower()
+            # Empty model output is still an authenticated response —
+            # the key is valid, the model just chose not to respond.
+            if "empty" in err or "output text" in err or "tool calls" in err or "output must contain" in err:
+                return True
             return False
 
     def analyze_photo_for_banner(self, image_bytes: bytes, global_context: str) -> str:
