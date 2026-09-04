@@ -1876,25 +1876,29 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         uniqualize_status["total_photos"] = len(photo_files)
         uniqualize_status["total_variants"] = len(photo_files) * variants_count
         uniqualize_status["done_variants"] = 0
-        uniqualize_status["message"] = f"Найдено {len(photo_files)} фото для {len(products_map)} товаров. Создаю структуру папок..."
+        uniqualize_status["message"] = f"Найдено {len(photo_files)} фото для {len(products_map)} товаров. Создаю папки копий..."
         logger.info(f"[Unique] Found {len(photo_files)} photos across {len(products_map)} products.")
 
-        # 3. Create output folder OUTSIDE the catalog to prevent polluting source catalog
-        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        # 3. Create N copy folders BESIDE the source folder
+        # e.g. if source is /Markoos/Penkof/Price_26_08, parent is /Markoos/Penkof
+        # We create alongside: {parent}/{src_name}_{ts_date}_копия_{copy_num}
         parts = [p for p in resolved_folder.strip("/").split("/") if p]
-        
-        if len(parts) >= 3 and not subdirs:
-            # Targeted single product (e.g. /Markoos/Penkof/Price_26_08/1) -> place next to catalog
-            catalog_parent = "/" + "/".join(parts[:-2])
-            catalog_name = parts[-2]
-            out_folder = f"{catalog_parent}/{catalog_name}_unique_{ts}"
-        else:
-            parent = "/" + "/".join(parts[:-1]) if len(parts) > 1 else "/"
-            out_folder = f"{parent}/{src_name}_unique_{ts}"
+        src_name = parts[-1] if parts else "каталог"
+        parent = "/" + "/".join(parts[:-1]) if len(parts) > 1 else "/"
 
-        yandex.create_folder(out_folder)
-        uniqualize_status["output_folder"] = out_folder
-        logger.info(f"[Unique] Output folder: {out_folder}")
+        ts_date = datetime.datetime.now().strftime("%Y%m%d")
+        test_first_copy = f"{parent}/{src_name}_{ts_date}_копия_1"
+        if yandex.check_directory_exists(test_first_copy):
+            ts_date = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+
+        copy_roots = {}
+        for c_num in range(1, variants_count + 1):
+            c_dir = f"{parent}/{src_name}_{ts_date}_копия_{c_num}"
+            yandex.create_folder(c_dir)
+            copy_roots[c_num] = c_dir
+
+        uniqualize_status["output_folder"] = f"{parent}/{src_name}_{ts_date}_копия_1 ... копия_{variants_count}"
+        logger.info(f"[Unique] Created {variants_count} copy folders alongside in '{parent}': {copy_roots}")
 
         # Pre-load background list if bg-replace is enabled
         bg_files = []
@@ -1906,32 +1910,15 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                     if f.lower().endswith((".jpg", ".jpeg", ".png"))
                 ]
 
-        created_folders = set()
+        created_subfolders = set()
         result_links = []
-        # Store URLs by product and pack: pack_urls[(prod_name, pack_num)] = [url1, url2...]
         from collections import defaultdict
-        pack_urls = defaultdict(list)
-        orig_urls = defaultdict(list)
+        copy_urls = defaultdict(list)
 
         global_photo_idx = 0
         for prod_idx, (prod_name, prod_photos) in enumerate(products_map.items()):
-            # Base directory for this product: out_folder/prod_name
-            prod_base_dir = f"{out_folder}/{prod_name}"
-            
-            # Subfolder: исходные
-            orig_dir = f"{prod_base_dir}/исходные"
-            if orig_dir not in created_folders:
-                yandex.create_folder(orig_dir)
-                created_folders.add(orig_dir)
-
-            # Subfolders: пак_1 .. пак_N
-            pack_dirs = {}
-            for pack_num in range(1, variants_count + 1):
-                p_dir = f"{prod_base_dir}/пак_{pack_num}"
-                if p_dir not in created_folders:
-                    yandex.create_folder(p_dir)
-                    created_folders.add(p_dir)
-                pack_dirs[pack_num] = p_dir
+            # If source had subfolders (rel_subfolder), replicate that subfolder inside each copy
+            has_subfolders = any(bool(p.get("rel_subfolder")) for p in prod_photos)
 
             for p_in_prod, photo in enumerate(prod_photos):
                 global_photo_idx += 1
@@ -1957,19 +1944,23 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                     except Exception:
                         pass
 
-                # Upload to "исходные" folder once
-                orig_disk_path = f"{orig_dir}/{photo['name']}"
-                orig_url = yandex.upload_bytes(original_bytes, orig_disk_path, overwrite=True)
-                if orig_url:
-                    orig_urls[prod_name].append(orig_url)
+                # Generate unique variant for each copy folder
+                for copy_num in range(1, variants_count + 1):
+                    copy_dir = copy_roots[copy_num]
 
-                # Generate variants for each pack
-                for pack_num in range(1, variants_count + 1):
-                    v_idx = pack_num - 1
-                    seed = global_photo_idx * 1000 + v_idx
+                    # Target directory inside copy folder
+                    if has_subfolders:
+                        target_dir = f"{copy_dir}/{prod_name}"
+                        if target_dir not in created_subfolders:
+                            yandex.create_folder(target_dir)
+                            created_subfolders.add(target_dir)
+                    else:
+                        target_dir = copy_dir
+
+                    seed = global_photo_idx * 1000 + (copy_num - 1)
 
                     uniqualize_status["message"] = (
-                        f"Товар «{prod_name}» | пак {pack_num}/{variants_count} | «{photo['name']}»..."
+                        f"Копия {copy_num}/{variants_count} | Товар «{prod_name}» | «{photo['name']}»..."
                     )
 
                     try:
@@ -1983,41 +1974,43 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                         # Step B: Apply 10 photographic uniqualization transforms
                         variant_bytes = apply_uniqualization(working_bytes, seed)
 
-                        # Upload to corresponding pack folder: out_folder/prod_name/пак_N/photo_name
-                        pack_disk_path = f"{pack_dirs[pack_num]}/{photo['name']}"
+                        # Upload to copy folder keeping the clean original filename
+                        pack_disk_path = f"{target_dir}/{photo['name']}"
                         url = yandex.upload_bytes(variant_bytes, pack_disk_path, overwrite=True)
 
                         if url:
-                            pack_urls[(prod_name, pack_num)].append(url)
+                            copy_urls[(prod_name, copy_num)].append(url)
                             result_links.append({
                                 "product": prod_name,
-                                "pack": f"пак_{pack_num}",
+                                "copy": f"копия_{copy_num}",
+                                "pack": f"копия_{copy_num}",
                                 "filename": photo["name"],
                                 "url": url
                             })
-                            logger.info(f"[Unique] Uploaded {prod_name}/пак_{pack_num}/{photo['name']} → {url}")
+                            logger.info(f"[Unique] Uploaded копия_{copy_num}/{prod_name}/{photo['name']} → {url}")
                         else:
-                            logger.warning(f"[Unique] Upload failed for {prod_name}/пак_{pack_num}/{photo['name']}")
+                            logger.warning(f"[Unique] Upload failed for копия_{copy_num}/{prod_name}/{photo['name']}")
 
                     except Exception as variant_err:
-                        logger.error(f"[Unique] Variant {pack_num} of {photo['name']} failed: {variant_err}")
+                        logger.error(f"[Unique] Copy {copy_num} of {photo['name']} failed: {variant_err}")
 
                     uniqualize_status["done_variants"] += 1
                     uniqualize_status["result_links"] = result_links
 
-        # 4. Construct 3-column TSV for Excel (Папка товара | Пак | Ссылки на фото)
-        tsv_lines = ["Папка товара\tПак\tСсылки на фото"]
+        # 4. Construct 3-column TSV for Excel (Папка товара | Копия | Ссылки на фото)
+        tsv_lines = ["Папка товара\tКопия\tСсылки на фото"]
         result_packs = []
         for prod_name in sorted(products_map.keys(), key=natural_sort_key):
-            for pack_num in range(1, variants_count + 1):
-                urls = pack_urls.get((prod_name, pack_num), [])
+            for copy_num in range(1, variants_count + 1):
+                urls = copy_urls.get((prod_name, copy_num), [])
                 if urls:
                     joined_urls = "\n".join(urls)
                     escaped_urls = f'"{joined_urls.replace(chr(34), chr(34)+chr(34))}"'
-                    tsv_lines.append(f"{prod_name}\tпак_{pack_num}\t{escaped_urls}")
+                    tsv_lines.append(f"{prod_name}\tкопия_{copy_num}\t{escaped_urls}")
                     result_packs.append({
                         "product": prod_name,
-                        "pack": f"пак_{pack_num}",
+                        "copy": f"копия_{copy_num}",
+                        "pack": f"копия_{copy_num}",
                         "urls": urls
                     })
 
@@ -2028,9 +2021,9 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
 
         mode_label = "с заменой фона" if use_bg_replace else "чистых"
         uniqualize_status["message"] = (
-            f"Готово! {len(products_map)} товаров распределены по папкам «исходные» и «пак_1»...«пак_{variants_count}» ({len(result_links)} фото). Нажмите «Скопировать ссылки для Excel»."
+            f"Готово! Создано {variants_count} копий каталога рядом с оригиналом в «{parent}» ({len(result_links)} фото). Нажмите «Скопировать ссылки для Excel»."
         )
-        logger.info(f"[Unique] Completed. {len(result_links)} files uploaded in {len(products_map)} products.")
+        logger.info(f"[Unique] Completed. {len(result_links)} files uploaded into {variants_count} copy folders.")
 
     except Exception as e:
         logger.exception("[Unique] Fatal error")

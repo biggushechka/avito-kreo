@@ -383,9 +383,9 @@
                         </div>
                         
                         <div class="form-group" style="display: flex; flex-direction: column; gap: 0.35rem;">
-                            <label for="uniq-variants-count" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-copy"></i> Количество уникализаций на каждое фото:</label>
+                            <label for="uniq-variants-count" style="font-size: 0.75rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><i class="fa-solid fa-copy"></i> Количество готовых копий каталога:</label>
                             <input type="number" id="uniq-variants-count" min="1" max="200" value="5" style="width: 100%; padding: 0.65rem 0.85rem; background-color: var(--bg-main); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-primary); font-size: 0.9rem;">
-                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Введите количество копий. Система сделает умный кроп, микро-ротацию, перспективное искажение, светокоррекцию, шум матрицы, хроматическую аберрацию, виньетирование и очистит метаданные.</small>
+                            <small style="color: var(--text-muted); font-size: 0.75rem; display: block;">Система создаст N готовых дубликатов папки рядом в корне (с суффиксом дата_копия_N). Внутри каждой копии сохраняется оригинальная структура каталога с уникализированными фото.</small>
                         </div>
                     </div>
 
@@ -429,7 +429,7 @@
                         </div>
                         <div style="display: flex; gap: 0.5rem;">
                             <button class="btn btn-secondary btn-icon-text" id="btn-copy-uniq-links" style="font-size: 0.75rem; padding: 0.35rem 0.65rem; display: none;">
-                                <i class="fa-solid fa-file-excel"></i> Скопировать для Excel (3 колонки)
+                                <i class="fa-solid fa-file-excel"></i> Скопировать для Excel (Папка | Копия | Фото)
                             </button>
                         </div>
                     </div>

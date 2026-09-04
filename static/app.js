@@ -2317,7 +2317,7 @@ function copyUniqualizedLinksToClipboard() {
     if (uniqualizedResultTsv && uniqualizedResultTsv.trim()) {
         textToCopy = uniqualizedResultTsv;
     } else if (uniqualizedResultLinks && uniqualizedResultLinks.length > 0) {
-        const lines = ["Папка товара\tПак\tСсылки на фото"];
+        const lines = ["Папка товара\tКопия\tСсылки на фото"];
         const packMap = {};
         for (const item of uniqualizedResultLinks) {
             const prod = item.product || '1';
@@ -2338,7 +2338,7 @@ function copyUniqualizedLinksToClipboard() {
     }
 
     navigator.clipboard.writeText(textToCopy).then(() => {
-        showNotification('Скопирована таблица для Excel: 3 колонки (Папка товара | Пак | Ссылки на фото)!', 'success');
+        showNotification('Скопирована таблица для Excel: 3 колонки (Папка товара | Копия | Ссылки на фото)!', 'success');
         const btn = elements.btnCopyUniqLinks;
         if (btn) {
             const orig = btn.innerHTML;
