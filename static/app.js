@@ -164,6 +164,7 @@ function setupEventListeners() {
     elements.btnOpenSettings.addEventListener('click', () => openModal(elements.settingsModal));
     elements.btnCloseSettings.addEventListener('click', () => closeModal(elements.settingsModal));
     elements.btnCancelSettings.addEventListener('click', () => closeModal(elements.settingsModal));
+    elements.settingsModal.addEventListener('click', (e) => { if (e.target === elements.settingsModal) closeModal(elements.settingsModal); });
     elements.btnSaveSettings.addEventListener('click', saveModalConfig);
     
     if (elements.btnLogout) {
@@ -308,13 +309,7 @@ async function checkApiConnections() {
         updateStatusBadge(elements.statusGemini, data.gemini_connected, 'Gemini API');
         updateStatusBadge(elements.statusYandex, data.yandex_connected, 'Яндекс.Диск');
         
-        // Show credentials modal on first load if APIs are not connected
-        if (!data.gemini_connected || !data.yandex_connected) {
-            // Wait briefly then show modal to help user configure
-            setTimeout(() => {
-                openModal(elements.settingsModal);
-            }, 1000);
-        }
+        // Auto-popup removed: settings modal opens only via gear button
     } catch (error) {
         console.error('API check error:', error);
         updateStatusBadge(elements.statusGemini, false, 'Gemini API');
