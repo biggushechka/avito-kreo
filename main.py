@@ -1886,10 +1886,20 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         src_name = parts[-1] if parts else "каталог"
         parent = "/" + "/".join(parts[:-1]) if len(parts) > 1 else "/"
 
-        ts_date = datetime.datetime.now().strftime("%Y%m%d")
+        now = datetime.datetime.now()
+        months_ru = {
+            1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "май", 6: "июн",
+            7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"
+        }
+        day_str = now.strftime("%d")
+        month_str = months_ru.get(now.month, now.strftime("%m"))
+        year_str = now.strftime("%Y")
+
+        # Человекочитаемая дата: день_месяц_год (например, 04_сен_2026)
+        ts_date = f"{day_str}_{month_str}_{year_str}"
         test_first_copy = f"{parent}/{src_name}_{ts_date}_копия_1"
         if yandex.check_directory_exists(test_first_copy):
-            ts_date = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+            ts_date = f"{day_str}_{month_str}_{year_str}_{now.strftime('%Hч%Mм')}"
 
         copy_roots = {}
         for c_num in range(1, variants_count + 1):
