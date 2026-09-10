@@ -174,18 +174,26 @@ def parse_structured_product_text(text: str, target_fields: Optional[List[str]] 
         
     normalized_text = text.replace('\r\n', '\n').replace('\r', '\n')
     
-    # 1. Сбор всех пар Ключ -> Значение из текста
+    # 1. Сбор всех пар Ключ -> Значение из текста (включая многострочные: Ключ:\nЗначение)
     kv_store = {}
-    for line in normalized_text.split('\n'):
-        line_s = line.strip()
-        if not line_s or line_s.startswith('---'):
+    lines_raw = [l.strip() for l in normalized_text.split('\n')]
+    for idx_l, line in enumerate(lines_raw):
+        if not line or line.startswith('---'):
             continue
-        m = re.match(r'^(?:[-*•]\s*)?([A-Za-zА-Яа-я0-9\s()/_.,"-]{2,40})\s*[:=]\s*(.+)$', line_s)
+        # Однострочный формат: Ключ: Значение
+        m = re.match(r'^(?:[-*•]\s*)?([A-Za-zА-Яа-я0-9\s()/_.,"-]{2,40})\s*[:=]\s*(.+)$', line)
         if m:
             k = m.group(1).strip().lower()
             v = m.group(2).strip()
             if v and len(k) < 40 and not any(skip in k for skip in ["http", "https", "//"]):
                 kv_store[k] = v
+        # Многострочный формат: Ключ:\nЗначение
+        elif line.endswith(':') and idx_l + 1 < len(lines_raw):
+            k = line[:-1].strip().lower()
+            next_v = lines_raw[idx_l + 1].strip()
+            if next_v and not next_v.endswith(':') and not next_v.startswith('---') and len(k) < 40:
+                if k not in kv_store:
+                    kv_store[k] = next_v
                 
     # 2. Сбор секций (--- НАЗВАНИЕ СЕКЦИИ ---)
     sections = {}
@@ -198,7 +206,7 @@ def parse_structured_product_text(text: str, target_fields: Optional[List[str]] 
     # 3. Базовые сущности
     # 3.1. Цена
     clean_price = ""
-    price_match = re.search(r'(?:^|\n)\s*(?:Цена[^\n:\-—]*|Стоимость[^\n:\-—]*|Прайс[^\n:\-—]*|Cost|Price)\s*[:\-—=]\s*([^\n\r]+)', normalized_text, re.IGNORECASE)
+    price_match = re.search(r'(?:^|\n)\s*(?:Цена|Стоимость|Прайс|Cost|Price)[^\n:\-—=]*[:\-—=]?\s*(?:\n\s*)?([^\n\r]+)', normalized_text, re.IGNORECASE)
     if price_match:
         p_val = price_match.group(1).strip().strip('"\'«»')
         clean_price = clean_price_value(p_val)
@@ -210,13 +218,18 @@ def parse_structured_product_text(text: str, target_fields: Optional[List[str]] 
 
     # 3.2. Название / Модель
     clean_title = ""
-    name_match = re.search(r'(?:^|\n)\s*(?:Название[^\n:\-—=]*|Модель[^\n:\-—=]*|Товар[^\n:\-—=]*|Наименование[^\n:\-—=]*|Product|Title|Model)\s*[:\-—=]\s*([^\n\r]+)', normalized_text, re.IGNORECASE)
+    name_match = re.search(r'(?:^|\n)\s*(?:Заголовок|Название|Модель|Товар|Наименование|Product|Title|Model)\s*[:\-—=]?\s*(?:\n\s*)?([^\n\r]+)', normalized_text, re.IGNORECASE)
     if name_match:
-        clean_title = name_match.group(1).strip().strip('"\'«»')
-    else:
+        t_cand = name_match.group(1).strip().strip('"\'«»')
+        if t_cand.lower() not in ["заголовок:", "заголовок", "название:", "название", "модель:"]:
+            clean_title = t_cand
+
+    if not clean_title:
         for line in normalized_text.split('\n'):
             line_str = line.strip().strip('"\'«»')
-            if line_str and not line_str.startswith('---') and not any(kw in line_str.lower() for kw in ["цена", "стоимость", "id vk", "ссылка", "http"]):
+            if line_str and not line_str.startswith('---') and not any(kw in line_str.lower() for kw in ["цена", "стоимость", "id vk", "ссылка", "http", "заголовок:"]):
+                if line_str.lower() in ["заголовок", "название", "описание", "характеристики"]:
+                    continue
                 if len(line_str) < 120 and not line_str.startswith('-') and not line_str.startswith('*'):
                     clean_title = line_str
                     break
@@ -683,11 +696,8 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
             raise Exception(f"Папка {yandex_folder_path} не найдена на Яндекс.Диске.")
             
         subdirs = yandex_handler.list_subdirectories(yandex_folder_path)
+        subdirs = [s for s in subdirs if not s.startswith((".", "_")) and "_unique" not in s.lower()]
         subdirs.sort(key=natural_sort_key)
-        
-        # Check if we have categories starting with '!'
-        categories = [d for d in subdirs if d.startswith("!")]
-        categories.sort(key=natural_sort_key)
         
         products_to_process = []
         image_extensions = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
@@ -711,9 +721,10 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                     elif ext in doc_extensions:
                         docs.append(f)
                 
-                # Получаем подпапки 1-го уровня
+                # Получаем подпапки 1-го уровня внутри товара (например, "фото" или "исходные")
                 try:
                     subs = yandex_handler.list_subdirectories(path)
+                    subs = [s for s in subs if not s.startswith((".", "_")) and "_unique" not in s.lower()]
                     subs.sort(key=natural_sort_key)
                     for sub in subs:
                         sub_path = f"{path.rstrip('/')}/{sub}"
@@ -773,24 +784,30 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                         root_description_text += f"\n--- Файл {doc['name']} ---\n{text}\n"
             except Exception as doc_err:
                 add_log(f"Ошибка чтения общего файла {doc['name']}: {doc_err}")
-        
-        if categories:
-            add_log(f"Обнаружены папки категорий (начинаются с '!'): {categories}")
-            for cat_name in categories:
-                cat_path = f"{yandex_folder_path.rstrip('/')}/{cat_name}"
-                add_log(f"Сканирование категории {cat_name}...")
+
+        # Рекурсивный обход иерархии: автоматическое определение категорий и товаров
+        for folder_name in subdirs:
+            folder_path = f"{yandex_folder_path.rstrip('/')}/{folder_name}"
+            
+            nested_subdirs = yandex_handler.list_subdirectories(folder_path)
+            nested_subdirs = [s for s in nested_subdirs if not s.startswith((".", "_")) and "_unique" not in s.lower()]
+            nested_subdirs.sort(key=natural_sort_key)
+            
+            # Если у папки есть вложенные подпапки (или она начинается с '!'), это КАТЕГОРИЯ / РОДИТЕЛЬСКАЯ ПАПКА
+            if nested_subdirs or folder_name.startswith("!"):
+                cat_name = folder_name.lstrip("!").strip()
+                add_log(f"Категория «{cat_name}»: обнаружено {len(nested_subdirs)} товаров/моделей внутри...")
                 
-                # List files in category folder (for docx / pricing info)
-                cat_files = yandex_handler.list_files(cat_path)
+                # Документы уровня категории
+                cat_files = yandex_handler.list_files(folder_path)
                 cat_docs = [f for f in cat_files if os.path.splitext(f["name"])[1].lower() in doc_extensions]
                 cat_docs.sort(key=lambda f: natural_sort_key(f["name"]))
                 
-                # Read all category-level docs
                 cat_description_text = ""
                 cat_pricing_text = ""
                 for doc in cat_docs:
                     try:
-                        add_log(f"Чтение файла описания категории {cat_name}: {doc['name']}...")
+                        add_log(f"Чтение файла категории {cat_name}: {doc['name']}...")
                         text = read_docx(doc)
                         if text:
                             if any(kw in doc["name"].lower() for kw in pricing_keywords):
@@ -800,24 +817,15 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                     except Exception as doc_err:
                         add_log(f"Ошибка чтения файла {doc['name']}: {doc_err}")
                 
-                # List subdirectories (the actual products/models)
-                model_dirs = yandex_handler.list_subdirectories(cat_path)
-                model_dirs.sort(key=natural_sort_key)
-                
-                if model_dirs:
-                    add_log(f"В категории {cat_name} найдено моделей: {len(model_dirs)}")
-                    for model_name in model_dirs:
-                        model_path = f"{cat_path}/{model_name}"
-                        
-                        # Collect images and documents inside the model folder recursively
+                if nested_subdirs:
+                    for model_name in nested_subdirs:
+                        model_path = f"{folder_path}/{model_name}"
                         model_images, model_docs = collect_files_and_images(model_path)
                         
-                        # Read model-level documents
                         model_desc_text = ""
                         model_pricing_text = ""
                         for doc in model_docs:
                             try:
-                                add_log(f"Чтение файла модели {model_name}: {doc['name']}...")
                                 text = read_docx(doc)
                                 if text:
                                     if any(kw in doc["name"].lower() for kw in pricing_keywords):
@@ -827,7 +835,6 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                             except Exception as doc_err:
                                 add_log(f"Ошибка чтения файла модели {doc['name']}: {doc_err}")
                         
-                        # Combine category, model and root contexts
                         combined_desc = (root_description_text + "\n" + cat_description_text + "\n" + model_desc_text).strip()
                         combined_pricing = (root_pricing_text + "\n" + cat_pricing_text + "\n" + model_pricing_text).strip()
                         
@@ -836,55 +843,51 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                             "folder_path": model_path,
                             "description_text": combined_desc,
                             "pricing_text": combined_pricing,
-                            "category": cat_name.lstrip("!").strip(),
+                            "category": cat_name,
                             "image_files": model_images
                         })
                 else:
-                    # Treat category itself as one product
-                    add_log(f"В категории {cat_name} не найдено подпапок моделей. Обрабатываем её как один товар.")
-                    cat_images, cat_docs = collect_files_and_images(cat_path)
-                    
+                    # Категория без подпапок: обрабатываем как отдельный товар
+                    cat_images, _ = collect_files_and_images(folder_path)
                     combined_desc = (root_description_text + "\n" + cat_description_text).strip()
                     combined_pricing = (root_pricing_text + "\n" + cat_pricing_text).strip()
-                    
                     products_to_process.append({
-                        "name": cat_name.lstrip("!").strip(),
-                        "folder_path": cat_path,
+                        "name": cat_name,
+                        "folder_path": folder_path,
                         "description_text": combined_desc,
                         "pricing_text": combined_pricing,
-                        "category": cat_name.lstrip("!").strip(),
+                        "category": cat_name,
                         "image_files": cat_images
                     })
-        else:
-            # Traditional behavior: each subdirectory is a product
-            add_log(f"Папки категорий с '!' не найдены. Обрабатываем подпапки как товары.")
-            for folder_name in subdirs:
-                folder_path = f"{yandex_folder_path.rstrip('/')}/{folder_name}"
-                add_log(f"Сканирование папки товара: {folder_name}...")
+            else:
+                # Прямой товар на 1-м уровне
+                add_log(f"Сканирование прямого товара: {folder_name}...")
+                prod_images, prod_docs = collect_files_and_images(folder_path)
                 
-                images, docs = collect_files_and_images(folder_path)
-                
-                description_text = root_description_text
-                pricing_text = root_pricing_text
-                for doc in docs:
+                prod_desc_text = ""
+                prod_pricing_text = ""
+                for doc in prod_docs:
                     try:
-                        add_log(f"Чтение файла товара {folder_name}: {doc['name']}...")
                         text = read_docx(doc)
                         if text:
                             if any(kw in doc["name"].lower() for kw in pricing_keywords):
-                                pricing_text += f"\n--- {doc['name']} ---\n{text}\n"
+                                prod_pricing_text += f"\n--- {doc['name']} ---\n{text}\n"
                             else:
-                                description_text += f"\n--- {doc['name']} ---\n{text}\n"
+                                prod_desc_text += f"\n--- {doc['name']} ---\n{text}\n"
                     except Exception as doc_err:
                         add_log(f"Ошибка чтения файла товара {doc['name']}: {doc_err}")
-                        
+                
+                combined_desc = (root_description_text + "\n" + prod_desc_text).strip()
+                combined_pricing = (root_pricing_text + "\n" + prod_pricing_text).strip()
+                
+                parent_dir_name = yandex_folder_path.rstrip("/").split("/")[-1]
                 products_to_process.append({
                     "name": folder_name,
                     "folder_path": folder_path,
-                    "description_text": description_text.strip(),
-                    "pricing_text": pricing_text.strip(),
-                    "category": "",
-                    "image_files": images
+                    "description_text": combined_desc,
+                    "pricing_text": combined_pricing,
+                    "category": parent_dir_name,
+                    "image_files": prod_images
                 })
                 
         if not products_to_process:
@@ -895,35 +898,50 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
         total_products = len(products_to_process)
         add_log(f"Всего товаров для обработки ИИ: {total_products}")
         
-        # Detect if user already included a dedicated photo/image link field in prompt_fields
+        # Интеллектуальное распознавание системных колонок
         photo_field_name = None
-        for fn in field_names:
-            fn_low = fn.lower()
-            if any(kw in fn_low for kw in ["фото", "photo", "image", "изображен", "картинк"]) or (("ссылк" in fn_low or "url" in fn_low or "link" in fn_low) and not any(v_kw in fn_low for v_kw in ["видео", "video", "youtube", "rutube", "vk"])):
-                photo_field_name = fn
-                break
-        
-        # Detect if user included a folder/id field
-        folder_field_name = None
-        for fn in field_names:
-            fn_low = fn.lower()
-            if "папк" in fn_low or fn_low in ["id", "идентификатор", "маркер"]:
-                folder_field_name = fn
-                break
+        product_folder_field = None
+        parent_folder_field = None
+        category_field = None
 
-        add_log(f"[DEBUG] photo_field_name='{photo_field_name}' | folder_field_name='{folder_field_name}' | field_names={field_names}")
+        for fn in field_names:
+            fn_low = fn.lower()
+            # 1. Колонка со ссылками на фото
+            if any(kw in fn_low for kw in ["фото", "photo", "image", "изображен", "картинк"]) or (
+                ("ссылк" in fn_low or "url" in fn_low or "link" in fn_low) 
+                and not any(v_kw in fn_low for v_kw in ["видео", "video", "youtube", "rutube", "vk", "товар"])
+            ):
+                photo_field_name = fn
+            # 2. Колонка родительской папки (категории)
+            elif any(kw in fn_low for kw in ["родител", "parent"]):
+                parent_folder_field = fn
+            # 3. Колонка папки конкретного товара
+            elif any(kw in fn_low for kw in ["папк", "folder", "id", "идентификатор", "маркер"]):
+                product_folder_field = fn
+            # 4. Колонка категории
+            elif fn_low in ["категория", "вид строения", "раздел", "группа", "группа товаров"]:
+                category_field = fn
+
+        add_log(f"[DEBUG] photo_field='{photo_field_name}' | prod_folder_field='{product_folder_field}' | parent_folder_field='{parent_folder_field}' | cat_field='{category_field}'")
         
-        # Determine actual table headers
+        # Определяем фактические заголовки таблицы
         if photo_field_name:
             headers = field_names
         else:
             headers = field_names + ["Ссылка на фото"]
 
-        # Fields that Gemini should fill (exclude photo and auto-populated folder field)
-        gemini_field_names = [
-            f for f in field_names 
-            if f != photo_field_name and f != folder_field_name
-        ]
+        # Системные поля, которые заполняются программно напрямую из путей Яндекс.Диска (НЕ нейросетью!)
+        system_fields = set()
+        if photo_field_name:
+            system_fields.add(photo_field_name)
+        if product_folder_field:
+            system_fields.add(product_folder_field)
+        if parent_folder_field:
+            system_fields.add(parent_folder_field)
+        if category_field:
+            system_fields.add(category_field)
+
+        gemini_field_names = [f for f in field_names if f not in system_fields]
         
         table_generator_status["result_headers"] = headers
         
@@ -942,7 +960,7 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
             current_progress = round((idx / total_products) * 100, 1)
             table_generator_status["progress"] = current_progress
             
-            add_log(f"=== [{idx + 1}/{total_products}] Извлечение данных: {product_name} ===")
+            add_log(f"=== [{idx + 1}/{total_products}] Товар: «{product_name}» (Категория: «{category}») ===")
             
             description_text = item["description_text"]
             pricing_text     = item["pricing_text"]
@@ -958,17 +976,15 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
             
             product_info = {field: "" for field in field_names}
             
-            # Pre-populate folder name if designated column exists
-            if folder_field_name:
-                product_info[folder_field_name] = product_name
-
-            # Pre-populate category/вид строения field if present and we know it
-            if category:
-                for field in field_names:
-                    if field.lower() in ["вид строения", "категория"]:
-                        product_info[field] = category
+            # 1. Заполняем метаданные путей напрямую из структуры Яндекс.Диска
+            if product_folder_field:
+                product_info[product_folder_field] = product_name
+            if parent_folder_field:
+                product_info[parent_folder_field] = category
+            if category_field:
+                product_info[category_field] = category
             
-            # Pre-populate direct matches
+            # 2. Прямые совпадения из структурированного парсера
             for field in gemini_field_names:
                 if field in direct_parsed and direct_parsed[field]:
                     product_info[field] = direct_parsed[field]
@@ -977,34 +993,27 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                         if direct_k.lower() == field.lower() and direct_v:
                             product_info[field] = direct_v
             
-            if combined_context.strip():
+            if combined_context.strip() and gemini_field_names:
                 add_log("Форматирование и извлечение данных через Gemini 3.6 Flash...")
                 json_template = ", ".join([f'"{f}": "значение"' for f in gemini_field_names])
-                
                 category_part = f' из категории "{category}"' if category else ""
                 
                 gemini_prompt = f"""Ты помогаешь собрать таблицу товаров для маркетплейса Авито.
 
-Категория{category_part}. Текущая папка/модель: "{product_name}"
+Категория{category_part}. Товар / Папка модели: "{product_name}"
 
-Контекст (описание и прайс-лист стоимости):
+Контекст (описание и характеристики конкретного товара):
 {combined_context}
 
-Задача: извлеки из предоставленного контекста точные значения для следующих полей КОНКРЕТНО для модели "{product_name}":
+Задача: извлеки из контекста точные значения для следующих полей для товара "{product_name}":
 {', '.join(gemini_field_names)}
 
 Правила заполнения:
-1. "Название" — извлеки и приведи в красивый читаемый коммерческий вид реальное название модели (например, 'Баня-бочка Квадро 2x2 м', 'Беседка каркасная 3х5м'). Если название папки числовое или служебное (например, '1', '10', 'Новая папка'), обязательно возьми реальное название из текста.
-2. "Цена" — найди точную стоимость ИМЕННО этой модели в контексте или прайс-листе.
-КРИТИЧЕСКИ ВАЖНО:
-- Если в тексте есть строка "Цена: ...", возьми точную цену оттуда.
-- Значение цены должно быть числовым значением в рублях (например, "199 000 ₽" или "199 000").
-- Не придумывай цену и не путай цену с толщиной бруса (45 мм), камнями (100 кг) или объемом (14 м3).
-- Если цена не найдена, верни пустую строку "".
-3. "Описание" — составь чистое маркетинговое описание товара для Авито на основе комплектации и характеристик (без лишних служебных символов).
-4. "Параметры" — укажи размеры, габариты и комплектацию модели (например, '2x2 м, ель, профилированный брус 45 мм, печь Везувий').
-5. "Вид строения" — тип постройки: {category if category else 'определи из контекста'} (например, Баня, Беседка, Хозблок, Садовый дом).
-6. Если какое-либо поле не удаётся заполнить на основе контекста, верни пустую строку "".
+1. "Название" — точное коммерческое название товара (например, '{product_name}'). Ни в коем случае НЕ возвращай слово 'Заголовок:'! Если в тексте написано 'Заголовок:\nБлок...', возьми именно название товара 'Блок...'. Если сомневаешься, используй '{product_name}'.
+2. "Цена" — точная стоимость товара (например, "330 руб. за ед." или "330 ₽"). Если в тексте указана стоимость, возьми её точно.
+3. "Описание" — полное маркетинговое описание товара для Авито на основе текста (без служебных слов 'Заголовок:' и 'Ссылка на товар').
+4. "Параметры" — технические характеристики (размеры, вес, фасовка и т.д.).
+5. Если какое-либо поле не удаётся заполнить, верни пустую строку "".
 
 Пользовательские инструкции:
 {prompt_instruction or 'Заполни поля максимально точно и аккуратно.'}
@@ -1027,7 +1036,6 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                     for field in gemini_field_names:
                         val = str(parsed.get(field, "") or "").strip()
                         if val:
-                            # If price, clean it
                             if any(p_kw in field.lower() for p_kw in ["цен", "стоимост", "price"]):
                                 product_info[field] = clean_price_value(val)
                             else:
@@ -1040,27 +1048,29 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
                             if direct_k.lower() == field.lower() and direct_v:
                                 product_info[field] = direct_v
             else:
-                add_log("Описание отсутствует, используем структурированные данные.")
+                add_log("Используем данные структурированного парсера.")
                 for field in gemini_field_names:
                     for direct_k, direct_v in direct_parsed.items():
                         if direct_k.lower() == field.lower() and direct_v:
                             product_info[field] = direct_v
 
-            # Guarantee Name is populated accurately
+            # Защита Названия: ни в коем случае не должно быть 'Заголовок:' или пустым
             for field in field_names:
-                if any(n_kw in field.lower() for n_kw in ["назван", "модел", "товар", "name"]) and field != folder_field_name:
+                if any(n_kw in field.lower() for n_kw in ["назван", "модел", "товар", "name"]) and field not in [product_folder_field, parent_folder_field]:
                     curr_val = str(product_info.get(field, "")).strip()
-                    if not curr_val or curr_val.isdigit() or curr_val.lower().startswith("новая папка"):
-                        if direct_parsed.get("Название"):
+                    if not curr_val or curr_val.isdigit() or curr_val.lower().startswith("новая папка") or curr_val.lower() in ["заголовок:", "заголовок", "название:", "название"]:
+                        if direct_parsed.get("Название") and direct_parsed["Название"].lower() not in ["заголовок:", "заголовок"]:
                             product_info[field] = direct_parsed["Название"]
                         elif direct_parsed.get("Описание"):
                             first_line = direct_parsed["Описание"].split("\n")[0].strip()
-                            if first_line and len(first_line) < 100 and not first_line.lower().startswith("спецификация"):
+                            if first_line and len(first_line) < 100 and not first_line.lower().startswith(("спецификация", "заголовок")):
                                 product_info[field] = first_line
+                        else:
+                            product_info[field] = product_name
 
             # Guarantee Price is populated accurately
             for field in field_names:
-                if any(p_kw in field.lower() for p_kw in ["цен", "стоимост", "price"]):
+                if any(p_kw in field.lower() for p_kw in ["цен", "стоимост", "price"]) and field not in [product_folder_field, parent_folder_field]:
                     curr_val = str(product_info.get(field, "")).strip()
                     if not curr_val or curr_val == '""' or curr_val == '000 ₽':
                         if direct_parsed.get("Цена"):
@@ -1068,21 +1078,21 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
 
             # Guarantee Description is populated accurately
             for field in field_names:
-                if any(d_kw in field.lower() for d_kw in ["описан", "desc"]):
+                if any(d_kw in field.lower() for d_kw in ["описан", "desc"]) and field not in [product_folder_field, parent_folder_field]:
                     curr_val = str(product_info.get(field, "")).strip()
                     if not curr_val and direct_parsed.get("Описание"):
                         product_info[field] = direct_parsed["Описание"]
 
             # Guarantee Parameters are populated accurately
             for field in field_names:
-                if any(sp_kw in field.lower() for sp_kw in ["параметр", "характеристик", "спецификац", "комплектац", "габарит"]):
+                if any(sp_kw in field.lower() for sp_kw in ["параметр", "характеристик", "спецификац", "комплектац", "габарит"]) and field not in [product_folder_field, parent_folder_field]:
                     curr_val = str(product_info.get(field, "")).strip()
                     if not curr_val and direct_parsed.get("Параметры"):
                         product_info[field] = direct_parsed["Параметры"]
 
             # Guarantee Video Link is populated accurately
             for field in field_names:
-                if any(v_kw in field.lower() for v_kw in ["видео", "video", "rutube", "vk"]):
+                if any(v_kw in field.lower() for v_kw in ["видео", "video", "rutube", "vk"]) and field not in [product_folder_field, parent_folder_field]:
                     curr_val = str(product_info.get(field, "")).strip()
                     if not curr_val and direct_parsed.get("Ссылка на видео"):
                         product_info[field] = direct_parsed["Ссылка на видео"]
