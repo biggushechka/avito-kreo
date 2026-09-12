@@ -1954,10 +1954,13 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
 
         # Copy documentation and text files (description.txt, docx, etc.) into each copy folder
         if doc_files:
-            uniqualize_status["message"] = f"Копирую файлы описания ({len(doc_files)} шт.) в папки копий..."
             for c_num in range(1, variants_count + 1):
                 c_dir = copy_roots[c_num]
-                for d in doc_files:
+                for d_idx, d in enumerate(doc_files):
+                    if d_idx % 5 == 0 or d_idx == len(doc_files) - 1:
+                        uniqualize_status["message"] = (
+                            f"Копирование файлов описания ({d_idx + 1}/{len(doc_files)})..."
+                        )
                     try:
                         rel = d.get("rel_subfolder", "")
                         t_dir = f"{c_dir}/{rel}" if rel else c_dir

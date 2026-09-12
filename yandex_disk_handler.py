@@ -11,6 +11,7 @@ class YandexDiskHandler:
             "Accept": "application/json"
         }
         self.base_url = "https://cloud-api.yandex.net/v1/disk"
+        self._known_dirs = set()
 
     def check_connection(self) -> bool:
         """Verify if the OAuth token is valid and connection works."""
@@ -27,23 +28,30 @@ class YandexDiskHandler:
         """
         # Clean path: remove trailing slash, ensure it starts with /
         path = "/" + path.strip("/")
+        if path in self._known_dirs:
+            return True
         parts = [p for p in path.split("/") if p]
         
         current_path = ""
         for part in parts:
             current_path += "/" + part
+            if current_path in self._known_dirs:
+                continue
             encoded_path = urllib.parse.quote(current_path)
             url = f"{self.base_url}/resources?path={encoded_path}"
             try:
                 # Try to create folder
                 response = requests.put(url, headers=self.headers, timeout=10)
                 # 201 Created is success. 409 Conflict means it already exists (which is fine).
-                if response.status_code not in (201, 409):
+                if response.status_code in (201, 409):
+                    self._known_dirs.add(current_path)
+                else:
                     print(f"Failed to create folder {current_path}: {response.text}")
                     return False
             except Exception as e:
                 print(f"Error creating folder {current_path}: {e}")
                 return False
+        self._known_dirs.add(path)
         return True
 
     def copy_resource(self, from_path: str, to_path: str, overwrite: bool = True) -> bool:
@@ -56,7 +64,8 @@ class YandexDiskHandler:
         try:
             parent_dir = os.path.dirname(to_path).replace("\\", "/")
             if parent_dir and parent_dir != "/":
-                self.create_folder(parent_dir)
+                if parent_dir not in self._known_dirs:
+                    self.create_folder(parent_dir)
             response = requests.post(url, headers=self.headers, timeout=20)
             return response.status_code in (201, 202)
         except Exception as e:
@@ -75,7 +84,8 @@ class YandexDiskHandler:
         # Make sure parent directory exists on Yandex.Disk
         parent_dir = os.path.dirname(disk_file_path).replace("\\", "/")
         if parent_dir and parent_dir != "/":
-            self.create_folder(parent_dir)
+            if parent_dir not in self._known_dirs:
+                self.create_folder(parent_dir)
 
         # 1. Get URL to upload the file to
         encoded_disk_path = urllib.parse.quote(disk_file_path)
