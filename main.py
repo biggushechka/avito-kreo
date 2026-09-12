@@ -1835,46 +1835,66 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
 
         uniqualize_status["message"] = f"Читаю папку «{resolved_folder}» на Яндекс.Диске..."
         
-        # 2. Collect photos: direct files AND subdirectories (1, 2, 3...)
+        # 2. Collect photos and documentation recursively (any depth of nesting)
         photo_files = []
-        direct_files = yandex.list_files(resolved_folder)
-        for f in direct_files:
-            if f["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-                photo_files.append({
-                    "name": f["name"],
-                    "path": f["path"],
-                    "rel_subfolder": ""
-                })
+        doc_files = []
+        folders_scanned = [0]
 
-        subdirs = yandex.list_subdirectories(resolved_folder)
-        # Exclude any previous output folders, hidden folders, or system folders
-        subdirs = [
-            s for s in subdirs 
-            if not s.startswith((".", "_")) 
-            and "_unique" not in s.lower() 
-            and "исходные" not in s.lower()
-            and not s.lower().startswith("пак_")
-        ]
-        subdirs.sort(key=natural_sort_key)
-        for s in subdirs:
+        def scan_dir_recursive(curr_path: str, rel_prefix: str = ""):
+            folders_scanned[0] += 1
+            if folders_scanned[0] % 5 == 0 or not rel_prefix:
+                uniqualize_status["message"] = (
+                    f"Сканирование каталога: проверено {folders_scanned[0]} папок, найдено {len(photo_files)} фото..."
+                )
+            
+            # List files in curr_path
             try:
-                sub_path = f"{resolved_folder}/{s}"
-                s_files = yandex.list_files(sub_path)
-                s_files.sort(key=lambda x: natural_sort_key(x["name"]))
-                for sf in s_files:
-                    if sf["name"].lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                files = yandex.list_files(curr_path)
+                files.sort(key=lambda f: natural_sort_key(f["name"]))
+                for f in files:
+                    fname = f.get("name", "")
+                    if fname.startswith(".") or fname.lower() in ("desktop.ini", "thumbs.db"):
+                        continue
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in (".jpg", ".jpeg", ".png", ".webp"):
                         photo_files.append({
-                            "name": sf["name"],
-                            "path": sf["path"],
-                            "rel_subfolder": s
+                            "name": fname,
+                            "path": f.get("path", f"{curr_path}/{fname}"),
+                            "rel_subfolder": rel_prefix
                         })
-            except Exception as sub_err:
-                logger.warning(f"[Unique] Warning scanning subfolder {s}: {sub_err}")
+                    elif ext in (".txt", ".doc", ".docx"):
+                        doc_files.append({
+                            "name": fname,
+                            "path": f.get("path", f"{curr_path}/{fname}"),
+                            "rel_subfolder": rel_prefix
+                        })
+            except Exception as fe:
+                logger.warning(f"[Unique] Warning scanning files in {curr_path}: {fe}")
+
+            # List subdirectories in curr_path
+            try:
+                subdirs = yandex.list_subdirectories(curr_path)
+                subdirs = [
+                    s for s in subdirs 
+                    if not s.startswith((".", "_")) 
+                    and "_unique" not in s.lower() 
+                    and "исходные" not in s.lower() 
+                    and not s.lower().startswith("пак_")
+                ]
+                subdirs.sort(key=natural_sort_key)
+                for s in subdirs:
+                    next_path = f"{curr_path.rstrip('/')}/{s}"
+                    next_rel = f"{rel_prefix}/{s}".strip("/") if rel_prefix else s
+                    scan_dir_recursive(next_path, next_rel)
+            except Exception as se:
+                logger.warning(f"[Unique] Warning scanning subdirs in {curr_path}: {se}")
+
+        scan_dir_recursive(resolved_folder, "")
 
         if not photo_files:
             raise Exception(f"В папке '{resolved_folder}' не найдено фото (JPG/PNG/WEBP). Проверьте правильность пути.")
 
-        # Group photos by product folder (e.g. '1', '2', etc. or source folder name if single)
+        # Group photos by product folder (e.g. 'Категория/Товар' or source folder name if flat)
         src_name = resolved_folder.rstrip("/").split("/")[-1]
         products_map = {}
         for p in photo_files:
@@ -1887,7 +1907,7 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         uniqualize_status["total_variants"] = len(photo_files) * variants_count
         uniqualize_status["done_variants"] = 0
         uniqualize_status["message"] = f"Найдено {len(photo_files)} фото для {len(products_map)} товаров. Создаю папки копий..."
-        logger.info(f"[Unique] Found {len(photo_files)} photos across {len(products_map)} products.")
+        logger.info(f"[Unique] Found {len(photo_files)} photos and {len(doc_files)} doc files across {len(products_map)} products.")
 
         # 3. Create N copy folders BESIDE the source folder
         # e.g. if source is /Markoos/Penkof/Price_26_08, parent is /Markoos/Penkof
@@ -1931,6 +1951,24 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                 ]
 
         created_subfolders = set()
+
+        # Copy documentation and text files (description.txt, docx, etc.) into each copy folder
+        if doc_files:
+            uniqualize_status["message"] = f"Копирую файлы описания ({len(doc_files)} шт.) в папки копий..."
+            for c_num in range(1, variants_count + 1):
+                c_dir = copy_roots[c_num]
+                for d in doc_files:
+                    try:
+                        rel = d.get("rel_subfolder", "")
+                        t_dir = f"{c_dir}/{rel}" if rel else c_dir
+                        if t_dir not in created_subfolders:
+                            yandex.create_folder(t_dir)
+                            created_subfolders.add(t_dir)
+                        t_file_path = f"{t_dir}/{d['name']}"
+                        yandex.copy_resource(d["path"], t_file_path, overwrite=True)
+                    except Exception as doc_copy_err:
+                        logger.warning(f"[Unique] Warning copying doc file {d['name']}: {doc_copy_err}")
+
         result_links = []
         from collections import defaultdict
         copy_urls = defaultdict(list)
@@ -1939,6 +1977,7 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         for prod_idx, (prod_name, prod_photos) in enumerate(products_map.items()):
             # If source had subfolders (rel_subfolder), replicate that subfolder inside each copy
             has_subfolders = any(bool(p.get("rel_subfolder")) for p in prod_photos)
+            short_prod = prod_name.split("/")[-1] if "/" in prod_name else prod_name
 
             for p_in_prod, photo in enumerate(prod_photos):
                 global_photo_idx += 1
@@ -1946,7 +1985,7 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                 disk_path = photo["path"]
 
                 uniqualize_status["message"] = (
-                    f"Товар «{prod_name}» | Фото {p_in_prod+1}/{len(prod_photos)} «{photo['name']}»: скачиваю..."
+                    f"Товар «{short_prod}» | Фото {p_in_prod+1}/{len(prod_photos)} «{photo['name']}»: скачиваю..."
                 )
 
                 # Download original photo
@@ -1980,7 +2019,7 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
                     seed = global_photo_idx * 1000 + (copy_num - 1)
 
                     uniqualize_status["message"] = (
-                        f"Копия {copy_num}/{variants_count} | Товар «{prod_name}» | «{photo['name']}»..."
+                        f"Копия {copy_num}/{variants_count} | Товар «{short_prod}» | «{photo['name']}»..."
                     )
 
                     try:

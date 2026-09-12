@@ -46,6 +46,23 @@ class YandexDiskHandler:
                 return False
         return True
 
+    def copy_resource(self, from_path: str, to_path: str, overwrite: bool = True) -> bool:
+        """
+        Copies a resource (file or folder) from from_path to to_path on Yandex.Disk.
+        """
+        encoded_from = urllib.parse.quote(from_path)
+        encoded_to = urllib.parse.quote(to_path)
+        url = f"{self.base_url}/resources/copy?from={encoded_from}&path={encoded_to}&overwrite={str(overwrite).lower()}"
+        try:
+            parent_dir = os.path.dirname(to_path).replace("\\", "/")
+            if parent_dir and parent_dir != "/":
+                self.create_folder(parent_dir)
+            response = requests.post(url, headers=self.headers, timeout=20)
+            return response.status_code in (201, 202)
+        except Exception as e:
+            print(f"Error copying resource from {from_path} to {to_path}: {e}")
+            return False
+
     def upload_file(self, local_file_path: str, disk_file_path: str, overwrite: bool = True) -> Optional[str]:
         """
         Uploads a local file to Yandex.Disk at disk_file_path and returns the public URL.
