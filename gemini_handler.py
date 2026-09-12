@@ -5,16 +5,25 @@ import os
 from typing import List, Dict, Any, Optional
 
 class GeminiHandler:
-    def __init__(self, api_key: str, proxy: Optional[str] = None):
+    DEFAULT_BASE_URL = "https://restless-glade-9998gemini-proxy.novatorspb.workers.dev/v1beta"
+
+    def __init__(self, api_key: str, proxy: Optional[str] = None, base_url: Optional[str] = None):
         self.api_key = api_key
-        self.headers = {"Content-Type": "application/json"}
+        self.headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+        }
         # Read proxy from parameter or environment variable
         self.proxy = proxy or os.environ.get("GEMINI_PROXY")
         self.proxies = {"http": self.proxy, "https": self.proxy} if self.proxy else None
         
+        # Base URL: default to Cloudflare Worker reverse-proxy to bypass Google datacenter geoblock
+        raw_base = base_url or os.environ.get("GEMINI_BASE_URL") or self.DEFAULT_BASE_URL
+        self.base_url = raw_base.rstrip("/")
+        
         # We use direct REST API endpoints for maximum compatibility on any Python version.
-        self.text_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key={self.api_key}"
-        self.image_url = f"https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-fast-generate-001:predict?key={self.api_key}"
+        self.text_url = f"{self.base_url}/models/gemini-3.6-flash:generateContent?key={self.api_key}"
+        self.image_url = f"{self.base_url}/models/imagen-4.0-fast-generate-001:predict?key={self.api_key}"
 
     def _make_request_with_retry(self, url: str, payload: dict, timeout: int, max_retries: int = 2) -> requests.Response:
         import time
@@ -45,10 +54,10 @@ class GeminiHandler:
         return requests.post(url, headers=self.headers, json=payload, timeout=timeout, proxies=self.proxies)
 
     def _make_text_request_with_fallback(self, payload: dict, timeout: int) -> requests.Response:
-        models = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]
+        models = ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite", "gemini-3.8-flash"]
         last_response = None
         for model in models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+            url = f"{self.base_url}/models/{model}:generateContent?key={self.api_key}"
             try:
                 response = self._make_request_with_retry(url, payload, timeout)
                 if response.status_code == 200:
@@ -69,10 +78,10 @@ class GeminiHandler:
             "contents": [{"parts": [{"text": "Say: ok"}]}],
             "generationConfig": {"maxOutputTokens": 10}
         }
-        for model in ["gemini-3.7-flash", "gemini-flash-latest"]:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+        for model in ["gemini-3.6-flash", "gemini-3.7-flash", "gemini-flash-latest"]:
+            url = f"{self.base_url}/models/{model}:generateContent?key={self.api_key}"
             try:
-                r = requests.post(url, headers=self.headers, json=payload, timeout=4, proxies=self.proxies)
+                r = requests.post(url, headers=self.headers, json=payload, timeout=5, proxies=self.proxies)
                 if r.status_code in (200, 429):
                     return True
             except Exception as e:
@@ -654,7 +663,7 @@ class GeminiHandler:
         
         # 1. Try Imagen predict models
         for model in models_predict:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:predict?key={self.api_key}"
+            url = f"{self.base_url}/models/{model}:predict?key={self.api_key}"
             try:
                 print(f"[Image Gen] Requesting image using model: {model}...")
                 response = self._make_request_with_retry(url, payload, timeout=40)
@@ -675,7 +684,7 @@ class GeminiHandler:
             "contents": [{"parts": [{"text": prompt}]}]
         }
         for model in models_gen:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+            url = f"{self.base_url}/models/{model}:generateContent?key={self.api_key}"
             try:
                 print(f"[Image Gen] Requesting image using generateContent model: {model}...")
                 response = self._make_request_with_retry(url, gen_payload, timeout=40)

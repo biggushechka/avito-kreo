@@ -85,6 +85,7 @@ def load_system_defaults() -> dict:
         "yandex_client_id": os.environ.get("YANDEX_CLIENT_ID", "bb9d4b22f0884401a1aa1695def54e2d"),
         "yandex_client_secret": os.environ.get("YANDEX_CLIENT_SECRET", "89d8a53154444685a37738431393cf40"),
         "gemini_proxy": os.environ.get("GEMINI_PROXY", ""),
+        "gemini_base_url": os.environ.get("GEMINI_BASE_URL", "https://restless-glade-9998gemini-proxy.novatorspb.workers.dev/v1beta"),
         "google_service_account_json": "",
         "default_local_dir": os.path.join(DATA_DIR, "local_output"),
         "default_yandex_dir": "/Markoos/Penkof",
@@ -318,6 +319,7 @@ class ConfigModel(BaseModel):
     yandex_client_id: Optional[str] = ""
     yandex_client_secret: Optional[str] = ""
     gemini_proxy: Optional[str] = ""
+    gemini_base_url: Optional[str] = "https://restless-glade-9998gemini-proxy.novatorspb.workers.dev/v1beta"
     google_service_account_json: Optional[str] = ""
     default_local_dir: str
     default_yandex_dir: str
@@ -395,6 +397,7 @@ def update_config(data: ConfigModel):
         "yandex_client_id": yandex_client_id,
         "yandex_client_secret": yandex_client_secret,
         "gemini_proxy": data.gemini_proxy.strip() if data.gemini_proxy else "",
+        "gemini_base_url": data.gemini_base_url.strip() if getattr(data, "gemini_base_url", None) else "https://restless-glade-9998gemini-proxy.novatorspb.workers.dev/v1beta",
         "google_service_account_json": google_service_account_json,
         "default_local_dir": data.default_local_dir.strip(),
         "default_yandex_dir": data.default_yandex_dir.strip(),
@@ -413,7 +416,7 @@ def check_apis():
     yandex_ok = False
     
     if config.get("gemini_api_key"):
-        gemini = GeminiHandler(config["gemini_api_key"], proxy=config.get("gemini_proxy"))
+        gemini = GeminiHandler(config["gemini_api_key"], proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         gemini_ok = gemini.check_connection()
         
     if config.get("yandex_token"):
@@ -433,7 +436,7 @@ def analyze_ad(request: AnalyzeRequest):
         raise HTTPException(status_code=400, detail="Gemini API Key is not set in configuration.")
     
     try:
-        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
+        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         result = handler.generate_marketing_slots(
             global_context=config.get("global_context", ""),
             visual_style=config.get("visual_style", ""),
@@ -454,7 +457,7 @@ def generate_image(request: GenerateRequest):
     
     try:
         logger.info(f"Generating image with prompt: {request.prompt[:100]}...")
-        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
+        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         image_bytes = handler.generate_image(prompt=request.prompt, aspect_ratio=request.aspect_ratio)
         
         # Save image temporarily
@@ -568,7 +571,7 @@ def generate_style_guide(request: StyleGuideRequest):
     if not request.references:
         raise HTTPException(status_code=400, detail="No reference images provided.")
     try:
-        handler = GeminiHandler(api_key)
+        handler = GeminiHandler(api_key, proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         style_guide = handler.generate_style_guide_from_references(request.references)
         return {"style_guide": style_guide}
     except Exception as e:
@@ -690,7 +693,7 @@ def run_table_generation_task(yandex_folder_path: str, prompt_fields: str, promp
         
         add_log(f"Сканирование директории Яндекс.Диска: {yandex_folder_path}...")
         yandex_handler = YandexDiskHandler(yandex_token)
-        gemini_handler = GeminiHandler(gemini_key, proxy=config.get("gemini_proxy"))
+        gemini_handler = GeminiHandler(gemini_key, proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         
         if not yandex_handler.check_directory_exists(yandex_folder_path):
             raise Exception(f"Папка {yandex_folder_path} не найдена на Яндекс.Диске.")
@@ -1401,7 +1404,7 @@ def run_pack_generation(count: int, ad_input: str):
         if not yandex_token:
             raise Exception("Яндекс.Диск токен не настроен.")
 
-        gemini = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
+        gemini = GeminiHandler(api_key, proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         yandex = YandexDiskHandler(yandex_token)
 
         # Timestamp suffix for unique folder names
@@ -1806,7 +1809,7 @@ def run_uniqualization(yandex_folder: str, variants_count: int, use_bg_replace: 
         if not yandex_token:
             raise Exception("Яндекс.Диск токен не настроен.")
 
-        gemini = GeminiHandler(api_key, proxy=config.get("gemini_proxy"))
+        gemini = GeminiHandler(api_key, proxy=config.get("gemini_proxy"), base_url=config.get("gemini_base_url"))
         yandex = YandexDiskHandler(yandex_token)
 
         # 1. Smart Path Resolution
