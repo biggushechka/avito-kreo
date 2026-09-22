@@ -1610,145 +1610,178 @@ class UniqualizRequest(BaseModel):
     use_bg_replace: bool = False   # whether to replace background via rembg
 
 
+CAMERA_PROFILES = [
+    {
+        "make": "Apple",
+        "model": "iPhone 15 Pro",
+        "software": "17.5.1",
+        "lens": "iPhone 15 Pro back triple camera 6.86mm f/1.78",
+        "focal": (686, 100),
+        "fnumber": (178, 100),
+        "iso_range": (50, 125)
+    },
+    {
+        "make": "Apple",
+        "model": "iPhone 14 Pro",
+        "software": "16.6.1",
+        "lens": "iPhone 14 Pro back camera 6.86mm f/1.78",
+        "focal": (686, 100),
+        "fnumber": (178, 100),
+        "iso_range": (64, 160)
+    },
+    {
+        "make": "Samsung",
+        "model": "SM-S928B",
+        "software": "S928BXXU1AXCA",
+        "lens": "Galaxy S24 Ultra Main Camera",
+        "focal": (630, 100),
+        "fnumber": (170, 100),
+        "iso_range": (50, 100)
+    },
+    {
+        "make": "Xiaomi",
+        "model": "23116PN5BC",
+        "software": "HyperOS 1.0.32",
+        "lens": "Leica Summilux 23mm f/1.6",
+        "focal": (680, 100),
+        "fnumber": (160, 100),
+        "iso_range": (50, 160)
+    },
+    {
+        "make": "Google",
+        "model": "Pixel 8 Pro",
+        "software": "Android 14",
+        "lens": "Pixel 8 Pro back camera 6.9mm f/1.68",
+        "focal": (690, 100),
+        "fnumber": (168, 100),
+        "iso_range": (40, 120)
+    }
+]
+
+
 def apply_uniqualization(image_bytes: bytes, seed: int) -> bytes:
     """
-    Apply a deterministic-but-varied set of transforms to uniqualize a photo for Avito.
-    Attacks all three detection layers:
-      Layer 1 (file hash): EXIF strip, JPEG quality randomization, LSB steganography, ICC profile swap
-      Layer 2 (pHash/dHash): micro-rotation+crop, perspective warp, sub-pixel resize,
-                             chromatic aberration, brightness/contrast/color/sharpness,
-                             adaptive noise, vignette, hue shift
-      Layer 3 (CNN embedding): perspective warp + vignette change global spatial distribution
+    Studio-grade photo uniqualization for Avito.
+    Preserves 100% crystal-clear visual quality, natural colors, and sharp geometry.
+    Completely avoids destructive filters (no chromatic aberration, no hue shifts,
+    no perspective warps, no heavy crops, no dark vignettes, no sensor grain).
+    
+    Attacks detection layers with surgical precision:
+      1. Perceptual Hashes (pHash/dHash):
+         - Sub-degree micro-rotation (0.22°–0.45°) with bicubic interpolation.
+         - Micro-crop & shift (0.8%–1.5%) to break 8x8 DCT grid alignment without cutting subject.
+         - Micro-resample to exact original canvas.
+      2. Color/Tone (Micro-calibration):
+         - Natural exposure / contrast / saturation micro-tuning within ±1.5%.
+         - Clean sharpness clarity touch (+1% to +4%). Zero color distortions.
+      3. File & Structural Hash:
+         - Imperceptible LSB dithering (±1 value on subset of pixels, invisible to human eye).
+         - Real smartphone EXIF metadata injection (iPhone 15 Pro, Galaxy S24, Xiaomi 14).
+         - Dynamic JPEG quantization table variation (Quality 93–96, adaptive chroma subsampling).
     """
-    import io, random
+    import io, random, datetime
     import numpy as np
-    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    from PIL import Image, ImageEnhance, ImageOps
 
     rng = random.Random(seed)
 
-    # ── Open and strip EXIF completely ─────────────────────────────────────────
+    # ── 1. Open image and normalize EXIF orientation ────────────────────────────
     raw_img = Image.open(io.BytesIO(image_bytes))
     raw_img = ImageOps.exif_transpose(raw_img)
     img = Image.new("RGB", raw_img.size)
     img.paste(raw_img)
     w, h = img.size
 
-    # ── 1. Sub-pixel resize (breaks dHash grid alignment) ──────────────────────
-    scale = rng.uniform(0.971, 0.994)
-    new_w = max(100, int(w * scale))
-    new_h = max(100, int(h * scale))
-    img = img.resize((new_w, new_h), Image.LANCZOS)
-    img = img.resize((w, h), Image.LANCZOS)
+    # Guard for extremely small icons
+    if w < 50 or h < 50:
+        out = io.BytesIO()
+        img.save(out, format="JPEG", quality=95)
+        return out.getvalue()
 
-    # ── 2. Perspective warp (simulates different camera angle, hits CNN) ────────
-    import struct
-    arr = np.array(img, dtype=np.float32)
-    warp_strength = rng.uniform(0.008, 0.028)
-    # Simple homographic-like warp via affine approximation with numpy
-    # Each corner drifts slightly — top-left, top-right, bottom-right, bottom-left
-    corners_shift = [
-        (rng.uniform(-warp_strength, warp_strength) * w,
-         rng.uniform(-warp_strength, warp_strength) * h)
-        for _ in range(4)
-    ]
-    # Implement perspective via PIL transform (PERSPECTIVE)
-    # coefficients: 8 values (a,b,c,d,e,f,g,h) for forward mapping
-    # Use a mild keystone: tilt one side slightly
-    tilt = rng.uniform(-0.015, 0.015)
-    x0, y0 = corners_shift[0]
-    x1, y1 = corners_shift[1]
-    coeffs = (
-        1 + tilt,  rng.uniform(-0.005, 0.005),  x0,
-        rng.uniform(-0.003, 0.003), 1 + rng.uniform(-0.008, 0.008), y0,
-        rng.uniform(-0.00005, 0.00005), rng.uniform(-0.00005, 0.00005)
-    )
-    img = img.transform((w, h), Image.PERSPECTIVE, coeffs, Image.BICUBIC)
+    # ── 2. Imperceptible micro-rotation (0.22° to 0.45°) ────────────────────────
+    # Rotates slightly left or right. Completely invisible to human eye, but alters
+    # every pixel's spatial coordinate relative to DCT compression blocks.
+    angle = rng.choice([-1, 1]) * rng.uniform(0.22, 0.45)
+    img = img.rotate(angle, resample=Image.Resampling.BICUBIC, expand=False)
 
-    # ── 3. Slight rotation + smart crop (removes warp edges, varies composition) ─
-    angle = rng.uniform(-1.4, 1.4)
-    if abs(angle) > 0.15:
-        img = img.rotate(angle, resample=Image.BICUBIC, expand=False)
-    crop_pct = rng.uniform(0.030, 0.055)
-    ct = int(h * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
-    cb = int(h * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
-    cl = int(w * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
-    cr = int(w * rng.uniform(crop_pct * 0.7, crop_pct * 1.3))
+    # ── 3. Smart micro-crop (0.8% to 1.5%) ──────────────────────────────────────
+    # Trims away the microscopic rotation boundary and breaks the dHash grid alignment.
+    # Product stays completely centered, framed, and sharp.
+    crop_x_pct = rng.uniform(0.009, 0.016)
+    crop_y_pct = rng.uniform(0.009, 0.016)
+    
+    jitter_x = rng.uniform(-0.002, 0.002)
+    jitter_y = rng.uniform(-0.002, 0.002)
+    
+    cl = int(w * max(0.004, crop_x_pct / 2 + jitter_x))
+    cr = int(w * max(0.004, crop_x_pct / 2 - jitter_x))
+    ct = int(h * max(0.004, crop_y_pct / 2 + jitter_y))
+    cb = int(h * max(0.004, crop_y_pct / 2 - jitter_y))
+    
     img = img.crop((cl, ct, w - cr, h - cb))
-    w2, h2 = img.size
+    
+    # Smooth resample back to original resolution with high-fidelity Lanczos
+    img = img.resize((w, h), Image.Resampling.LANCZOS)
 
-    # ── 4. Horizontal flip (~20% of variants) ──────────────────────────────────
-    if rng.random() < 0.20:
-        img = img.transpose(Image.FLIP_LEFT_RIGHT)
+    # ── 4. Studio Tone Calibration (Strictly Natural, No Hue Shift!) ───────────
+    # Subtle brightness calibration within ±1.2%
+    img = ImageEnhance.Brightness(img).enhance(rng.uniform(0.988, 1.012))
+    # Subtle contrast calibration within ±1.5%
+    img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.988, 1.015))
+    # Subtle saturation calibration within ±1.8% (NEVER change hue!)
+    img = ImageEnhance.Color(img).enhance(rng.uniform(0.985, 1.018))
+    # Micro-sharpness clarity touch
+    img = ImageEnhance.Sharpness(img).enhance(rng.uniform(1.01, 1.04))
 
-    # ── 5. Hue shift (HSV rotation ±5–10°, invisible to naked eye) ─────────────
-    hue_shift = rng.uniform(-12, 12)
-    if abs(hue_shift) > 3:
-        hsv = img.convert("HSV")
-        h_ch, s_ch, v_ch = hsv.split()
-        h_arr = np.array(h_ch, dtype=np.int16)
-        h_arr = (h_arr + int(hue_shift * 255 / 360)) % 256
-        h_ch = Image.fromarray(h_arr.astype(np.uint8), mode="L")
-        img = Image.merge("HSV", (h_ch, s_ch, v_ch)).convert("RGB")
-
-    # ── 6. Brightness / Contrast / Color / Sharpness micro-adjustments ─────────
-    img = ImageEnhance.Brightness(img).enhance(rng.uniform(0.93, 1.07))
-    img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.94, 1.06))
-    img = ImageEnhance.Color(img).enhance(rng.uniform(0.91, 1.09))
-    img = ImageEnhance.Sharpness(img).enhance(rng.uniform(0.88, 1.12))
-
-    # ── 7. Vignette (optical lens darkening at edges, shifts DCT low-freq) ──────
-    if rng.random() < 0.80:
-        vig_strength = rng.uniform(0.04, 0.14)
-        arr = np.array(img, dtype=np.float32)
-        rows, cols = arr.shape[:2]
-        cx, cy = cols / 2, rows / 2
-        Y, X = np.ogrid[:rows, :cols]
-        dist = np.sqrt(((X - cx) / cx) ** 2 + ((Y - cy) / cy) ** 2)
-        mask = 1.0 - vig_strength * dist
-        mask = np.clip(mask, 0, 1)
-        arr = arr * mask[:, :, np.newaxis]
-        img = Image.fromarray(np.clip(arr, 0, 255).astype(np.uint8))
-
-    # ── 8. Chromatic aberration (RGB channel shift, breaks texture pHash) ───────
-    if rng.random() < 0.70:
-        shift_r = rng.randint(1, 3)
-        shift_b = rng.randint(1, 3)
-        arr = np.array(img)
-        r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
-        # Shift R channel slightly right, B slightly left
-        r_shifted = np.roll(r, shift_r, axis=1)
-        b_shifted = np.roll(b, -shift_b, axis=1)
-        arr = np.stack([r_shifted, g, b_shifted], axis=2)
-        img = Image.fromarray(arr.astype(np.uint8))
-
-    # ── 9. Adaptive sensor noise (texture-proportional, looks natural) ──────────
-    noise_level = rng.uniform(1.0, 5.5)
-    arr = np.array(img, dtype=np.float32)
-    # Compute local variance (proxy for texture level) via blur difference
-    from PIL import ImageFilter as _IF
-    blurred = np.array(img.filter(_IF.GaussianBlur(radius=2)), dtype=np.float32)
-    texture_mask = np.abs(arr - blurred).mean(axis=2, keepdims=True)
-    texture_mask = np.clip(texture_mask / (texture_mask.max() + 1e-6), 0.2, 1.0)
+    # ── 5. Imperceptible LSB & Sub-perceptual Dither ───────────────────────────
+    # Modifies pixel values by at most ±1 unit on a sparse pseudo-random mask.
+    # 100% invisible to human eyes, but changes cryptographic hash & DCT blocks.
+    arr = np.array(img, dtype=np.int16)
     rng_np = np.random.RandomState(seed % (2**31))
-    noise = rng_np.uniform(-noise_level, noise_level, arr.shape).astype(np.float32)
-    noise = noise * texture_mask  # more noise on details, less on plain areas
-    arr = np.clip(arr + noise, 0, 255).astype(np.uint8)
+    dither = rng_np.choice([-1, 0, 1], size=arr.shape, p=[0.20, 0.60, 0.20])
+    arr = np.clip(arr + dither, 0, 255).astype(np.uint8)
+
+    # Embed 32-bit unique seed in channel 0's first 32 pixels
+    flat0 = arr[:, :, 0].flatten()
+    if len(flat0) >= 32:
+        seed_bits = [(seed >> i) & 1 for i in range(32)]
+        for i, bit in enumerate(seed_bits):
+            flat0[i] = (flat0[i] & 0xFE) | bit
+        arr[:, :, 0] = flat0.reshape(arr.shape[:2])
     img = Image.fromarray(arr)
 
-    # ── 10. LSB steganography (unique per-variant invisible pixel tag) ──────────
-    arr = np.array(img, dtype=np.uint8)
-    # Embed seed as 32 bits in the LSBs of the first 32 pixels of channel 0
-    seed_bits = [(seed >> i) & 1 for i in range(32)]
-    flat = arr[:, :, 0].flatten().copy()
-    for i, bit in enumerate(seed_bits):
-        flat[i] = (flat[i] & 0xFE) | bit
-    arr[:, :, 0] = flat.reshape(arr.shape[:2])
-    img = Image.fromarray(arr)
+    # ── 6. Realistic Camera EXIF Generation ────────────────────────────────────
+    profile = rng.choice(CAMERA_PROFILES)
+    exif = Image.Exif()
+    exif[0x010f] = profile["make"]
+    exif[0x0110] = profile["model"]
+    exif[0x0131] = profile["software"]
 
-    # ── Output: randomized JPEG quality ────────────────────────────────────────
+    # Generate plausible recent photo timestamp (1 to 28 days ago)
+    days_ago = rng.randint(1, 28)
+    hours_ago = rng.randint(8, 20)
+    mins = rng.randint(10, 55)
+    secs = rng.randint(10, 55)
+    dt = datetime.datetime.now() - datetime.timedelta(days=days_ago)
+    date_str = dt.strftime(f"%Y:%m:%d {hours_ago:02d}:{mins:02d}:{secs:02d}")
+    exif[0x0132] = date_str
+
+    ifd = exif.get_ifd(0x8769)
+    ifd[36867] = date_str  # DateTimeOriginal
+    ifd[36868] = date_str  # DateTimeDigitized
+    ifd[33434] = (1, rng.choice([60, 100, 120, 160, 200, 250]))  # ExposureTime
+    ifd[33437] = profile["fnumber"]  # FNumber
+    ifd[34855] = rng.randint(*profile["iso_range"])  # ISO
+    ifd[37386] = profile["focal"]  # FocalLength
+    if "lens" in profile:
+        ifd[42036] = profile["lens"]
+
+    # ── 7. High-Fidelity Studio JPEG Output ────────────────────────────────────
+    quality = rng.randint(93, 96)
+    subsampling = rng.choice([0, 2])  # 0 is 4:4:4 studio, 2 is 4:2:0 standard
+
     out = io.BytesIO()
-    quality = rng.randint(88, 95)
-    img.save(out, format="JPEG", quality=quality, optimize=True)
+    img.save(out, format="JPEG", quality=quality, exif=exif, subsampling=subsampling, optimize=True)
     return out.getvalue()
 
 
